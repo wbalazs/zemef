@@ -1,0 +1,70 @@
+<?php
+
+namespace App\Http\Requests;
+
+use App\Tag;
+use App\Models\Vehicle;
+use App\Category;
+use Illuminate\Validation\Rule;
+use Illuminate\Foundation\Http\FormRequest;
+
+class VehicleRequest extends FormRequest
+{
+    /**
+     * Determine if the user is authorized to make this request.
+     *
+     * @return bool
+     */
+    public function authorize()
+    {
+        return auth()->check();
+    }
+
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array
+     */
+    public function rules()
+    {
+        return [
+            'name' => [
+                'required', 'min:3'
+            ],
+            'plate_number' => [
+            ],
+            'insurance_number' => [
+            ],
+            'insurance_date' => [
+            ],
+            'casco' => [
+            ],
+            'casco_date' => [
+            ],
+            'responsible' => [
+            ],
+            'start_km' => [
+            ],
+            'end_km' => [
+            ],
+            'condition' => [
+            ],
+            'condition_date' => [
+            ],
+            'status' => [
+            ]
+        ];
+    }
+
+    /**
+     * Get the validation attributes that apply to the request.
+     *
+     * @return array
+     */
+    public function attributes()
+    {
+        return [
+            
+        ];
+    }
+}

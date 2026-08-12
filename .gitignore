@@ -1,0 +1,56 @@
+# Laravel standard ignores
+/node_modules
+/public/hot
+/public/storage
+/storage/*.key
+/vendor
+.env
+.env.backup
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+auth.json
+npm-debug.log
+yarn-error.log
+/.idea
+/.vscode
+/.vagrant
+.DS_Store
+Thumbs.db
+
+# Your server-specific extras (not part of the app)
+/awstats-icon
+/stats
+/icon
+/public/phpmyadmin
+/public/document_storage
+/public/pdf
+/public/plugins
+/public/dist
+/public/css
+/public/js
+/public/img
+/public/fonts
+/public/webfonts
+/public/phpmyadmin
+
+# Laravel runtime caches
+/storage/framework
+/storage/logs
+/bootstrap/cache
+/public/adminer1.php
+/public/kenyszer.txt
+/public/keszlet.csv
+
+# Other temporary files
+test_commission.php
+*.log
+*.sqlite
+*.sqlite-journal
+/.htaccess
+/.htaccess.*
+/.continue/
+/.editorconfig
+/.styleci.yml
+/storage/
+/storage/*

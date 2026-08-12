@@ -1,0 +1,34 @@
+<?php
+/*
+
+=========================================================
+* Argon Dashboard PRO - v1.0.0
+=========================================================
+
+* Product Page: https://www.creative-tim.com/product/argon-dashboard-pro-laravel
+* Copyright 2018 Creative Tim (https://www.creative-tim.com) & UPDIVISION (https://www.updivision.com)
+
+* Coded by www.creative-tim.com & www.updivision.com
+
+=========================================================
+
+* The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+*/
+namespace App\Models;
+
+use App\Tag;
+use App\Category;
+use Illuminate\Database\Eloquent\Model;
+
+class ProductSign extends Model
+{
+    protected $table = 'master_product_signs';
+    public $primaryKey = 'product_sign_id';
+
+
+    public function products(): BelongsToMany
+    {
+        return $this->belongsToMany(Product::class);
+    }
+}
