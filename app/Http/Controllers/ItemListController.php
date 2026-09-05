@@ -13,6 +13,11 @@ use App\Models\ItemList\ItemList;
 use App\Models\ItemListItem\ItemListItem;
 use App\Models\ItemList\DataTransferObjects\ItemListItemData;
 use App\Models\Warehouse;
+use App\Models\StockEntry;
+use App\Models\Currency;
+use App\Models\Karat;
+use App\Models\VatType;
+use App\Enums\InventoryStatus;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
@@ -458,25 +463,250 @@ class ItemListController extends Controller
     }
 
     public function setItemStatus(Request $request){
-        
         $itemList = ItemList::find($request->get('item_list_id'));
-        $import = $itemList->import;
-        $rows = $import['rows'];
+        if (!$itemList) {
+            return response()->json(['success' => false, 'message' => 'Item list not found'], 404);
+        }
 
-        foreach ($rows as &$row) {
-            if ($row['row1'] === $request->get('item_row1')) {
-                $row['status'] = $request->get('status');
-                break; // Exit after finding the first match
+        $newStatus = (int) $request->get('status', 1);
+        $targetSor = (string) $request->get('item_sor', '');
+        $targetRow1 = (string) $request->get('item_row1', '');
+
+        $json = $itemList->json ?? [];
+        $updated = false;
+
+        if (isset($json['tetelek']) && is_array($json['tetelek'])) {
+            foreach ($json['tetelek'] as &$tetel) {
+                if (!is_array($tetel)) {
+                    continue;
+                }
+
+                $matchBySor = isset($tetel['sor']) && (string) $tetel['sor'] === $targetSor;
+                $matchByTicket = isset($tetel['zalogjegy_szama']) && (string) $tetel['zalogjegy_szama'] === $targetRow1;
+
+                if ($matchBySor || $matchByTicket) {
+                    $tetel['status'] = $newStatus;
+                    $updated = true;
+                    break;
+                }
+            }
+            unset($tetel);
+        }
+
+        if (!$updated) {
+            $import = $itemList->import;
+            $rows = $import['rows'] ?? [];
+
+            foreach ($rows as &$row) {
+                if (($row['row1'] ?? null) === $targetRow1) {
+                    $row['status'] = $newStatus;
+                    $updated = true;
+                    break;
+                }
+            }
+            unset($row);
+
+            if ($updated) {
+                $itemList->import = [
+                    'rows' => $rows
+                ];
+                $itemList->save();
+                return response()->json(['success' => true], 200);
             }
         }
 
-        $itemList->import = [
-            'rows' => $rows
-        ];
+        if (!$updated) {
+            return response()->json(['success' => false, 'message' => 'Row not found'], 404);
+        }
 
+        $itemList->json = $json;
         $itemList->save();
 
         return response()->json(['success' => true], 200);
+    }
+
+    public function showTetel(ItemList $itemList, int $sor)
+    {
+        $rows = $itemList->json['tetelek'] ?? [];
+        $rowIndex = null;
+
+        foreach ($rows as $index => $row) {
+            if ((int) ($row['sor'] ?? -1) === $sor) {
+                $rowIndex = $index;
+                break;
+            }
+        }
+
+        if ($rowIndex === null) {
+            abort(404, 'Tétel nem található.');
+        }
+
+        $item = $rows[$rowIndex];
+
+        return view('item_lists.item_row_show', compact('itemList', 'item'));
+    }
+
+    public function editTetel(ItemList $itemList, int $sor)
+    {
+        $rows = $itemList->json['tetelek'] ?? [];
+        $rowIndex = null;
+
+        foreach ($rows as $index => $row) {
+            if ((int) ($row['sor'] ?? -1) === $sor) {
+                $rowIndex = $index;
+                break;
+            }
+        }
+
+        if ($rowIndex === null) {
+            abort(404, 'Tétel nem található.');
+        }
+
+        $item = $rows[$rowIndex];
+        $itemJson = json_encode($item, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+
+        return view('item_lists.item_row_edit', compact('itemList', 'item', 'itemJson'));
+    }
+
+    /**
+     * Egy kényszerlista tétel átemelése az ékszer vásárlás (stock_entry) rendszerbe.
+     * A header adatokból létrehoz egy új stock_entry-t és egy hozzá tartozó inventory tételt,
+     * majd a meglévő ékszer vásárlás szerkesztő oldalra irányít.
+     */
+    public function transferTetel(ItemList $itemList, int $sor)
+    {
+        $rows = $itemList->json['tetelek'] ?? [];
+        $rowIndex = null;
+
+        foreach ($rows as $index => $row) {
+            if ((int) ($row['sor'] ?? -1) === $sor) {
+                $rowIndex = $index;
+                break;
+            }
+        }
+
+        if ($rowIndex === null) {
+            abort(404, 'Tétel nem található.');
+        }
+
+        $tetel = $rows[$rowIndex];
+
+        $header = $itemList->json['header'] ?? [];
+        $businessName = $header['atvevo_bolt']['nev'] ?? null;
+        $business = $businessName ? Business::where('name', $businessName)->first() : null;
+        $storage = $business?->warehouses()->orderBy('warehouse_id')->first();
+
+        $karatValue = $tetel['karat'] ?? $tetel['karat_finomsag'] ?? null;
+        $karat = $karatValue ? Karat::where('name', $karatValue)->first() : null;
+
+        $vatType = VatType::where('value', 27)->first();
+        $currency = Currency::where('name', 'Forint')->first() ?? Currency::where('default', 1)->first();
+
+        $beszerzesiAr = $tetel['atveteli_ar'] ?? null;
+
+        // Ha már korábban megnyitottuk ezt a tételt, a meglévő (még üres) bizonylatot használjuk újra, hogy ne halmozzódjanak a fejek.
+        $stock_entry = !empty($tetel['stock_entry_id']) ? StockEntry::find($tetel['stock_entry_id']) : null;
+
+        if (!$stock_entry) {
+            $stock_entry = StockEntry::create([
+                // sorszám a tetel zálogjegy száma, státusz 1: így a tétel felvitel rögtön megjelenik
+                'ticket_number' => $tetel['zalogjegy_szama'] ?? '--empty_row--',
+                'status' => 1,
+                'business_id' => $business?->business_id,
+                'storage_id' => $storage?->warehouse_id,
+                'currency_id' => $currency?->currency_id,
+                'currency_value' => 1.00,
+                'fulfillment_date' => now()->toDateString(),
+                'header_data' => [
+                    'customer_marking_id' => null,
+                    'category_id' => null,
+                    'beszerzesi_ar' => $beszerzesiAr,
+                    'eladasi_ar' => null,
+                    'vat_type_id' => $vatType?->vat_type_id,
+                    'hallmarks' => 0,
+                    'karat_id' => $karat?->karat_id,
+                    'label_type' => null,
+                ],
+            ]);
+
+            $tetel['stock_entry_id'] = $stock_entry->stock_entry_id;
+            $rows[$rowIndex] = $tetel;
+
+            $json = $itemList->json ?? [];
+            $json['tetelek'] = $rows;
+            $itemList->json = $json;
+            $itemList->save();
+        }
+
+        // Az "új tétel" űrlap alapértelmezett értékei - még nem kerül semmi az adatbázisba, csak a felhasználó jóváhagyása után (save_new_item_btn).
+        $prefill = [
+            'item_list_id' => $itemList->id,
+            'item_list_sor' => $sor,
+            'description' => $tetel['targyleiras'] ?? '',
+            'weight' => $tetel['netto_suly'] ?? ($tetel['brutto_suly'] ?? ''),
+            'quantity' => 1,
+            'oneprice' => $beszerzesiAr,
+            'price' => $beszerzesiAr,
+            'factory_number' => $header['listazas_azonosito'] ?? ($tetel['zalogjegy_szama'] ?? ''),
+        ];
+
+        return $this->renderTransferView($stock_entry, $itemList, $prefill);
+    }
+
+    /**
+     * Az ékszer vásárlás szerkesztő nézetének megjelenítése a kényszerlista almenlye alatt (nincs átirányítás a stock_entry névérre).
+     */
+    private function renderTransferView(StockEntry $stock_entry, ItemList $itemList, array $prefill = [])
+    {
+        $view = app(StockEntryController::class)->edit($stock_entry);
+
+        return $view->with([
+            'backRoute' => route('item_list.subindex', $itemList->id),
+            'backLabel' => 'Vissza a kényszerlistához',
+            'prefill' => $prefill,
+        ]);
+    }
+
+    public function updateTetel(Request $request, ItemList $itemList, int $sor)
+    {
+        $validated = $request->validate([
+            'item_json' => 'required|string',
+        ]);
+
+        $rows = $itemList->json['tetelek'] ?? [];
+        $rowIndex = null;
+
+        foreach ($rows as $index => $row) {
+            if ((int) ($row['sor'] ?? -1) === $sor) {
+                $rowIndex = $index;
+                break;
+            }
+        }
+
+        if ($rowIndex === null) {
+            return back()->withErrors(['item_json' => 'A tétel nem található.'])->withInput();
+        }
+
+        $decoded = json_decode((string) $validated['item_json'], true);
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
+            return back()->withErrors(['item_json' => 'Érvénytelen JSON formátum.'])->withInput();
+        }
+
+        $original = $rows[$rowIndex];
+
+        // A sor azonosító csak olvasható, mentéskor mindig az eredeti marad.
+        $decoded['sor'] = $original['sor'] ?? $sor;
+
+        $rows[$rowIndex] = $decoded;
+
+        $json = $itemList->json ?? [];
+        $json['tetelek'] = $rows;
+        $itemList->json = $json;
+        $itemList->save();
+
+        return redirect()
+            ->route('item_list.row.show', ['itemList' => $itemList->id, 'sor' => $sor])
+            ->with('success', 'A tétel sikeresen mentve.');
     }
 
     public function getItemListRows(Request $request)
@@ -617,6 +847,469 @@ class ItemListController extends Controller
         return str_starts_with($trimmedModel, 'models/') ? $trimmedModel : 'models/' . $trimmedModel;
     }
 
+    private function normalizeImportedPayload(array $data): array
+    {
+        if (!isset($data['tetelek']) || !is_array($data['tetelek'])) {
+            return $data;
+        }
+
+        $karatAverageMap = $this->buildFooterKaratAverageMap($data['footer'] ?? []);
+        $data = $this->applySharedTicketPriceAllocation($data, $karatAverageMap);
+        $ticketCounts = $this->buildTicketCounts($data['tetelek']);
+
+        foreach ($data['tetelek'] as $index => $tetel) {
+            if (!is_array($tetel)) {
+                continue;
+            }
+
+            if (isset($tetel['szamolt_tobbkaratos_arak']['kivetel_tipus']) && $tetel['szamolt_tobbkaratos_arak']['kivetel_tipus'] === 'ticket_megosztas') {
+                continue;
+            }
+
+            $ticketNumber = trim((string) ($tetel['zalogjegy_szama'] ?? ''));
+            $karatok = $tetel['karatok'] ?? [];
+
+            if (!is_array($karatok) || count($karatok) === 0) {
+                continue;
+            }
+
+            $isDuplicateTicket = $ticketNumber !== '' && ($ticketCounts[$ticketNumber] ?? 0) > 1;
+            $hasMultipleKarat = count($karatok) > 1;
+
+            if (!$isDuplicateTicket && !$hasMultipleKarat) {
+                continue;
+            }
+
+            $breakdown = $this->calculateKaratBreakdown($tetel, $karatAverageMap);
+            if ($breakdown === null) {
+                continue;
+            }
+
+            $tetel['szamolt_tobbkaratos_arak'] = $breakdown;
+            $data['tetelek'][$index] = $tetel;
+        }
+
+        $data = $this->applyAveragePurchasePricePerGram($data);
+
+        return $data;
+    }
+
+    private function applyAveragePurchasePricePerGram(array $data): array
+    {
+        foreach ($data['tetelek'] as $index => $tetel) {
+            if (!is_array($tetel)) {
+                continue;
+            }
+
+            $netWeight = $this->toFloat($tetel['netto_suly'] ?? null);
+            $atveteliAr = $this->toFloat($tetel['atveteli_ar'] ?? null);
+
+            if ($netWeight === null || $netWeight <= 0 || $atveteliAr === null || $atveteliAr <= 0) {
+                continue;
+            }
+
+            $averagePerGram = round($atveteliAr / $netWeight, 2);
+            $darab = (int) ($tetel['darab'] ?? 1);
+            if ($darab < 1) {
+                $darab = 1;
+            }
+
+            $tetel['atlag_beszerzesi_grammar'] = $averagePerGram;
+            $tetel['elszamolasi_alap'] = [
+                'atveteli_ar_osszesen' => (int) round($atveteliAr),
+                'netto_suly_osszesen' => $netWeight,
+                'atlag_beszerzesi_grammar' => $averagePerGram,
+                'darab' => $darab,
+                'egyedi_suly_felosztas_szukseges' => $darab > 1,
+            ];
+
+            $data['tetelek'][$index] = $tetel;
+        }
+
+        return $data;
+    }
+
+    private function applySharedTicketPriceAllocation(array $data, array $karatAverageMap): array
+    {
+        $grouped = [];
+
+        foreach ($data['tetelek'] as $index => $tetel) {
+            if (!is_array($tetel)) {
+                continue;
+            }
+
+            $ticket = trim((string) ($tetel['zalogjegy_szama'] ?? ''));
+            if ($ticket === '') {
+                continue;
+            }
+
+            $grouped[$ticket][] = $index;
+        }
+
+        foreach ($grouped as $ticket => $indexes) {
+            if (count($indexes) < 2) {
+                continue;
+            }
+
+            $totals = [];
+            foreach ($indexes as $idx) {
+                $value = $this->toFloat($data['tetelek'][$idx]['atveteli_ar'] ?? null);
+                if ($value !== null) {
+                    $totals[] = (int) round($value);
+                }
+            }
+
+            $uniqueTotals = array_values(array_unique($totals));
+            if (count($uniqueTotals) !== 1) {
+                continue;
+            }
+
+            $sharedTotal = $uniqueTotals[0];
+            if ($sharedTotal <= 0) {
+                continue;
+            }
+
+            $parts = [];
+            foreach ($indexes as $idx) {
+                $tetel = $data['tetelek'][$idx];
+                [$karat, $netWeight] = $this->extractTetelKaratAndWeight($tetel);
+
+                if ($karat === null || $netWeight === null || $netWeight <= 0) {
+                    continue;
+                }
+
+                $karatKey = $this->normalizeKaratKey($karat);
+                $avgPerGram = $karatKey !== null ? ($karatAverageMap[$karatKey] ?? null) : null;
+
+                $parts[] = [
+                    'idx' => $idx,
+                    'karat' => $karat,
+                    'netto_suly' => $netWeight,
+                    'netto_atveteli_atlagar' => $avgPerGram,
+                    'atveteli_ar' => null,
+                    'forras' => $avgPerGram !== null ? 'footer' : 'ismeretlen',
+                ];
+            }
+
+            if (count($parts) < 2) {
+                continue;
+            }
+
+            $primaryIndex = 0;
+            $maxWeight = -1;
+            foreach ($parts as $i => $part) {
+                if ($part['netto_suly'] > $maxWeight) {
+                    $maxWeight = $part['netto_suly'];
+                    $primaryIndex = $i;
+                }
+            }
+
+            $knownOthers = 0;
+            foreach ($parts as $i => &$part) {
+                if ($i === $primaryIndex) {
+                    continue;
+                }
+
+                if ($part['netto_atveteli_atlagar'] !== null) {
+                    $part['atveteli_ar'] = (int) round($part['netto_atveteli_atlagar'] * $part['netto_suly']);
+                    $knownOthers += $part['atveteli_ar'];
+                }
+            }
+            unset($part);
+
+            $primaryAmount = $sharedTotal - $knownOthers;
+            if ($primaryAmount < 0) {
+                $primaryAmount = 0;
+            }
+
+            $parts[$primaryIndex]['atveteli_ar'] = (int) round($primaryAmount);
+            $parts[$primaryIndex]['forras'] = 'maradek';
+            if ($parts[$primaryIndex]['netto_suly'] > 0) {
+                $parts[$primaryIndex]['netto_atveteli_atlagar'] = round(
+                    $parts[$primaryIndex]['atveteli_ar'] / $parts[$primaryIndex]['netto_suly'],
+                    2
+                );
+            }
+
+            $calculatedTotal = 0;
+            foreach ($parts as $i => &$part) {
+                if ($part['atveteli_ar'] === null && $part['netto_atveteli_atlagar'] !== null) {
+                    $part['atveteli_ar'] = (int) round($part['netto_atveteli_atlagar'] * $part['netto_suly']);
+                }
+
+                if ($part['atveteli_ar'] !== null) {
+                    $calculatedTotal += $part['atveteli_ar'];
+                }
+
+                $targetIdx = $part['idx'];
+                $data['tetelek'][$targetIdx]['eredeti_atveteli_ar'] = $sharedTotal;
+                $data['tetelek'][$targetIdx]['atveteli_ar'] = $part['atveteli_ar'];
+                $data['tetelek'][$targetIdx]['netto_atveteli_atlagar'] = $part['netto_atveteli_atlagar'];
+                $data['tetelek'][$targetIdx]['atlag_beszerzesi_grammar'] = $part['netto_atveteli_atlagar'];
+                $data['tetelek'][$targetIdx]['szamolt_tobbkaratos_arak'] = [
+                    'kivetel_alkalmazva' => true,
+                    'kivetel_tipus' => 'ticket_megosztas',
+                    'zalogjegy_szama' => $ticket,
+                    'ticket_ossz_atveteli_ar' => $sharedTotal,
+                    'szamolt_ticket_osszesen' => null,
+                    'fo_karat' => $parts[$primaryIndex]['karat'] ?? null,
+                    'fo_karat_netto_suly' => $parts[$primaryIndex]['netto_suly'] ?? null,
+                    'fo_karat_atveteli_ar' => $parts[$primaryIndex]['atveteli_ar'] ?? null,
+                    'fo_karat_atlag_beszerzesi_grammar' => $parts[$primaryIndex]['netto_atveteli_atlagar'] ?? null,
+                    'tetel_felbontas' => [
+                        'karat' => $part['karat'],
+                        'netto_suly' => $part['netto_suly'],
+                        'atveteli_ar' => $part['atveteli_ar'],
+                        'netto_atveteli_atlagar' => $part['netto_atveteli_atlagar'],
+                        'forras' => $part['forras'],
+                    ],
+                ];
+            }
+            unset($part);
+
+            foreach ($parts as $part) {
+                $data['tetelek'][$part['idx']]['szamolt_tobbkaratos_arak']['szamolt_ticket_osszesen'] = $calculatedTotal;
+            }
+        }
+
+        return $data;
+    }
+
+    private function extractTetelKaratAndWeight(array $tetel): array
+    {
+        $rowKarat = $this->toFloat($tetel['karat'] ?? null);
+        $rowNetWeight = $this->toFloat($tetel['netto_suly'] ?? null);
+
+        if ($rowKarat !== null && $rowNetWeight !== null && $rowNetWeight > 0) {
+            return [$rowKarat, $rowNetWeight];
+        }
+
+        $karatok = $tetel['karatok'] ?? [];
+        if (!is_array($karatok) || count($karatok) === 0) {
+            return [null, null];
+        }
+
+        $first = $karatok[0] ?? null;
+        if (!is_array($first)) {
+            return [null, null];
+        }
+
+        return [
+            $this->toFloat($first['karat'] ?? null),
+            $this->toFloat($first['netto_suly'] ?? null),
+        ];
+    }
+
+    private function buildTicketCounts(array $tetelek): array
+    {
+        $counts = [];
+
+        foreach ($tetelek as $tetel) {
+            if (!is_array($tetel)) {
+                continue;
+            }
+
+            $ticket = trim((string) ($tetel['zalogjegy_szama'] ?? ''));
+            if ($ticket === '') {
+                continue;
+            }
+
+            $counts[$ticket] = ($counts[$ticket] ?? 0) + 1;
+        }
+
+        return $counts;
+    }
+
+    private function buildFooterKaratAverageMap(array $footer): array
+    {
+        $map = [];
+        $sections = [
+            'arany_ekszer_allapotonkent_es_karatonkent',
+            'kulonleges_arany_ekszer_allapotonkent',
+        ];
+
+        foreach ($sections as $sectionName) {
+            $rows = $footer[$sectionName] ?? [];
+            if (!is_array($rows)) {
+                continue;
+            }
+
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                $karatKey = $this->normalizeKaratKey($row['karat_finomsag'] ?? null);
+                $avgPrice = $this->toFloat($row['netto_atveteli_atlagar'] ?? null);
+
+                if ($karatKey === null || $avgPrice === null) {
+                    continue;
+                }
+
+                $map[$karatKey] = $avgPrice;
+            }
+        }
+
+        return $map;
+    }
+
+    private function calculateKaratBreakdown(array $tetel, array $karatAverageMap): ?array
+    {
+        $karatok = $tetel['karatok'] ?? [];
+        if (!is_array($karatok) || count($karatok) === 0) {
+            return null;
+        }
+
+        $parts = [];
+        foreach ($karatok as $idx => $karatRow) {
+            if (!is_array($karatRow)) {
+                continue;
+            }
+
+            $netWeight = $this->toFloat($karatRow['netto_suly'] ?? null);
+            if ($netWeight === null || $netWeight <= 0) {
+                continue;
+            }
+
+            $karatKey = $this->normalizeKaratKey($karatRow['karat'] ?? null);
+            $avgPerGram = $karatKey !== null ? ($karatAverageMap[$karatKey] ?? null) : null;
+
+            $parts[] = [
+                'index' => $idx,
+                'karat' => $this->toFloat($karatRow['karat'] ?? null),
+                'karat_key' => $karatKey,
+                'netto_suly' => $netWeight,
+                'brutto_suly' => $this->toFloat($karatRow['brutto_suly'] ?? null),
+                'netto_atveteli_atlagar' => $avgPerGram,
+                'atveteli_ar' => null,
+                'forras' => $avgPerGram !== null ? 'footer' : 'ismeretlen',
+            ];
+        }
+
+        if (count($parts) === 0) {
+            return null;
+        }
+
+        $primaryPartIndex = 0;
+        $maxWeight = -1;
+        foreach ($parts as $i => $part) {
+            if ($part['netto_suly'] > $maxWeight) {
+                $maxWeight = $part['netto_suly'];
+                $primaryPartIndex = $i;
+            }
+        }
+
+        $totalAtveteliAr = $this->toFloat($tetel['atveteli_ar'] ?? null);
+
+        $knownOtherAmount = 0;
+        foreach ($parts as $i => &$part) {
+            if ($i === $primaryPartIndex) {
+                continue;
+            }
+
+            if ($part['netto_atveteli_atlagar'] !== null) {
+                $part['atveteli_ar'] = (int) round($part['netto_atveteli_atlagar'] * $part['netto_suly']);
+                $knownOtherAmount += $part['atveteli_ar'];
+            }
+        }
+        unset($part);
+
+        if ($totalAtveteliAr !== null) {
+            $primaryAmount = (int) round($totalAtveteliAr - $knownOtherAmount);
+            if ($primaryAmount < 0) {
+                $primaryAmount = 0;
+            }
+
+            $parts[$primaryPartIndex]['atveteli_ar'] = $primaryAmount;
+            $parts[$primaryPartIndex]['forras'] = 'maradek';
+
+            if ($parts[$primaryPartIndex]['netto_suly'] > 0) {
+                $parts[$primaryPartIndex]['netto_atveteli_atlagar'] = round(
+                    $primaryAmount / $parts[$primaryPartIndex]['netto_suly'],
+                    2
+                );
+            }
+        }
+
+        $calculatedTotal = 0;
+        foreach ($parts as &$part) {
+            if ($part['atveteli_ar'] === null && $part['netto_atveteli_atlagar'] !== null) {
+                $part['atveteli_ar'] = (int) round($part['netto_atveteli_atlagar'] * $part['netto_suly']);
+            }
+
+            if ($part['atveteli_ar'] !== null) {
+                $calculatedTotal += (int) $part['atveteli_ar'];
+            }
+
+            unset($part['index']);
+            unset($part['karat_key']);
+        }
+        unset($part);
+
+        return [
+            'kivetel_alkalmazva' => true,
+            'zalogjegy_szama' => $tetel['zalogjegy_szama'] ?? null,
+            'eredeti_atveteli_ar' => $totalAtveteliAr !== null ? (int) round($totalAtveteliAr) : null,
+            'szamolt_atveteli_ar_osszesen' => $calculatedTotal,
+            'karat_felbontas' => $parts,
+            'fo_karat' => $parts[$primaryPartIndex]['karat'] ?? null,
+            'fo_karat_netto_suly' => $parts[$primaryPartIndex]['netto_suly'] ?? null,
+            'fo_karat_atveteli_ar' => $parts[$primaryPartIndex]['atveteli_ar'] ?? null,
+            'fo_karat_atlag_beszerzesi_grammar' => $parts[$primaryPartIndex]['netto_atveteli_atlagar'] ?? null,
+        ];
+    }
+
+    private function normalizeKaratKey($value): ?string
+    {
+        $numeric = $this->toFloat($value);
+        if ($numeric === null) {
+            return null;
+        }
+
+        return number_format($numeric, 2, '.', '');
+    }
+
+    private function toFloat($value): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (float) $value;
+        }
+
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $normalized = str_replace(["\xc2\xa0", ' '], '', trim($value));
+        if ($normalized === '') {
+            return null;
+        }
+
+        $hasDot = strpos($normalized, '.') !== false;
+        $hasComma = strpos($normalized, ',') !== false;
+
+        if ($hasDot && $hasComma) {
+            if (strrpos($normalized, ',') > strrpos($normalized, '.')) {
+                $normalized = str_replace('.', '', $normalized);
+                $normalized = str_replace(',', '.', $normalized);
+            } else {
+                $normalized = str_replace(',', '', $normalized);
+            }
+        } elseif ($hasComma) {
+            $normalized = str_replace(',', '.', $normalized);
+        }
+
+        $normalized = preg_replace('/[^0-9.\-]/', '', $normalized);
+        if ($normalized === '' || $normalized === '-' || $normalized === '.') {
+            return null;
+        }
+
+        return is_numeric($normalized) ? (float) $normalized : null;
+    }
+
     private function processPdf(UploadedFile $pdf, int $userId, int $businessId, int $storageId): array
     {
         $itemList = ItemList::create([
@@ -684,9 +1377,11 @@ class ItemListController extends Controller
                 return ['success' => false, 'message' => 'Ervenytelen JSON valasz erkezett a Geminitol.'];
             }
 
-            if (!isset($data['header']) || !isset($data['tetelek']) || !is_array($data['tetelek'])) {
-                return ['success' => false, 'message' => 'A valasz nem tartalmazza a kotelezo header+tetelek szerkezetet.'];
+            if (!isset($data['header']) || !isset($data['tetelek']) || !is_array($data['tetelek']) || !isset($data['footer']) || !is_array($data['footer'])) {
+                return ['success' => false, 'message' => 'A valasz nem tartalmazza a kotelezo header+tetelek+footer szerkezetet.'];
             }
+
+            $data = $this->normalizeImportedPayload($data);
 
             $jsonFileName = 'gemini-code-' . round(microtime(true) * 1000) . '.json';
             $jsonRelativePath = 'gemini/' . $jsonFileName;
@@ -707,6 +1402,7 @@ class ItemListController extends Controller
                 ],
                 'header' => $data['header'],
                 'tetelek' => $data['tetelek'],
+                'footer' => $data['footer'],
                 'import' => [
                     'status' => 'completed',
                     'rows' => [],
@@ -737,9 +1433,11 @@ class ItemListController extends Controller
                 return ['success' => false, 'message' => 'Ervenytelen JSON fajl.'];
             }
 
-            if (!isset($data['header']) || !isset($data['tetelek']) || !is_array($data['tetelek'])) {
-                return ['success' => false, 'message' => 'A JSON nem tartalmazza a kotelezo header+tetelek szerkezetet.'];
+            if (!isset($data['header']) || !isset($data['tetelek']) || !is_array($data['tetelek']) || !isset($data['footer']) || !is_array($data['footer'])) {
+                return ['success' => false, 'message' => 'A JSON nem tartalmazza a kotelezo header+tetelek+footer szerkezetet.'];
             }
+
+            $data = $this->normalizeImportedPayload($data);
 
             $storedJsonPath = $jsonFile->store('gemini', 'local');
 
@@ -757,6 +1455,7 @@ class ItemListController extends Controller
                     ],
                     'header' => $data['header'],
                     'tetelek' => $data['tetelek'],
+                    'footer' => $data['footer'],
                     'import' => [
                         'status' => 'completed',
                         'rows' => [],

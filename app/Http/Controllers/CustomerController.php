@@ -105,22 +105,36 @@ class CustomerController extends Controller
     public function storeFromModal(Request $request)
     {
         $validated = $request->validate([
+            'is_company' => 'nullable|boolean',
             'name' => 'required|string|max:255',
             'email' => 'required|email',
             'phone' => 'required|string|max:30',
             'zip' => 'required|integer|exists:zips,id',
             'city' => 'required|integer|exists:cities,id',
             'address' => 'required|string|max:255',
+            'birth_name' => 'required_if:is_company,0|nullable|string|max:255',
+            'mothers_name' => 'required_if:is_company,0|nullable|string|max:100',
+            'birth_place' => 'required_if:is_company,0|nullable|string|max:100',
+            'birth_date' => 'required_if:is_company,0|nullable|date',
+            'tax_identity' => ['required_if:is_company,0', 'nullable', 'regex:/^\d{10}$/'],
+            'tax_number' => ['required_if:is_company,1', 'nullable', 'regex:/^\d{7}-\d-\d{2}$/'],
         ]);
 
         DB::beginTransaction();
 
         try {
-            // Új ügyfél mentése
+            $isCompany = (int) ($validated['is_company'] ?? 0) === 1;
             $customer = Customer::create([
                 'name' => $validated['name'],
                 'email' => $validated['email'] ?? null,
                 'phone' => $validated['phone'] ?? null,
+                'is_company' => $isCompany ? 1 : 0,
+                'mothers_name' => $isCompany ? null : ($validated['mothers_name'] ?? null),
+                'birth_place' => $isCompany ? null : ($validated['birth_place'] ?? null),
+                'birth_date' => $isCompany ? null : ($validated['birth_date'] ?? null),
+                'tax_identity' => $isCompany ? null : ($validated['tax_identity'] ?? null),
+                'tax_number' => $isCompany ? ($validated['tax_number'] ?? null) : null,
+                'json' => $isCompany ? null : ['birth_name' => $validated['birth_name'] ?? null],
                 'status' => 1
             ]);
 

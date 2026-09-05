@@ -8,6 +8,8 @@ enum ItemListStatus: int
     case PROCESSING = 1;
     case CLOSED = 2;
     case PRINTED = 3;
+    case BOUGHT_BACK = 4;
+    case PRODUCT = 5;
 
     public function label(): string
     {
@@ -16,6 +18,9 @@ enum ItemListStatus: int
             self::PROCESSING => 'Feldolgozas alatt',
             self::CLOSED => 'Lezarva',
             self::PRINTED => 'Nyomtatva',
+            self::BOUGHT_BACK => 'Újravásárolva',
+            self::PRODUCT => 'Termék',
+
         };
     }
 }

@@ -9,10 +9,12 @@
         </button>
       </div>
       <div class="modal-body">
-        <p>Biztosan le akarja zárni?</p>
+        <p id="itemlistStatusModalText">Biztosan le akarja zárni?</p>
       </div>
       <div id="modal-footer">
-        <inpu type="hidden" id="modal_itemlist_id">
+        <input type="hidden" id="modal_itemlist_id">
+        <input type="hidden" id="modal_item_sor">
+        <input type="hidden" id="modal_new_status" value="1">
         <button type="button" class="btn btn-secondary" data-dismiss="modal">Nem</button>
         <button type="button" class="btn btn-primary" id="itemlistStatusModalYes">Igen</button>
       </div>

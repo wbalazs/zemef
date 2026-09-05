@@ -21,7 +21,7 @@ class Customer extends Model
     protected $fillable = [
         'name','firstname','name_day', 'is_company' , 'tax_identity', 'card_number', 'mothers_name', 'birth_place', 'birth_date', 'identity_card_number', 'marketing_accept', 'terms_accept',
         'email', 'phone', 'comment', 'web_address', 'company_registration_number', 'tax_number', 'registration_number', 'payment_id', 'status','created_at',
-        'vzj', 'au'
+        'vzj', 'au', 'json'
     ];
 
     /**
@@ -31,6 +31,7 @@ class Customer extends Model
      */
     protected $casts = [
         'options' => 'array',
+        'json' => 'array',
     ];
 
 

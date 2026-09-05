@@ -675,6 +675,10 @@ Route::middleware('auth')->prefix('ajax')->group(function () {
     Route::post('/item-list/import-pdf', [ItemListController::class, 'importPdf'])->name('item_list.import_pdf');
     Route::post('/item-list/status', [ItemListController::class, 'setStatus'])->name('item_list.status');
     Route::post('/item-list/substatus', [ItemListController::class, 'setItemStatus'])->name('item_list.substatus');
+    Route::get('/item-list/{itemList}/tetel/{sor}', [ItemListController::class, 'showTetel'])->name('item_list.row.show');
+    Route::get('/item-list/{itemList}/tetel/{sor}/edit', [ItemListController::class, 'editTetel'])->name('item_list.row.edit');
+    Route::post('/item-list/{itemList}/tetel/{sor}', [ItemListController::class, 'updateTetel'])->name('item_list.row.update');
+    Route::get('/item-list/{itemList}/tetel/{sor}/transfer', [ItemListController::class, 'transferTetel'])->name('item_list.row.transfer');
     Route::post('/item-list/subimport', [StockEntryController::class, 'createFromImport'])->name('item_list.subimport');
     Route::get('/get-itemlist-rows', [ItemListController::class, 'getAllItemListRows'])->name('get.itemlist.rows');
     Route::get('/item-list/{id}/print-receipt', [ItemListController::class, 'printReceipt'])

@@ -140,6 +140,24 @@
                             @include('alerts.success')
                             @include('alerts.errors')
                         </div>
+
+                        <div class="col-12 mt-2">
+                            <div class="row align-items-end">
+                                <div class="col-md-4 form-group mb-2">
+                                    <label for="filter_zalogjegy" class="form-label">Zálogjegy</label>
+                                    <input type="text" id="filter_zalogjegy" class="form-control form-control-sm" placeholder="Szűrés zálogjegy alapján...">
+                                </div>
+                                <div class="col-md-4 form-group mb-2">
+                                    <label for="filter_status" class="form-label">Státusz</label>
+                                    <select id="filter_status" class="form-control form-control-sm">
+                                        <option value="">Mind</option>
+                                        @foreach (\App\Enums\ItemListStatus::cases() as $status)
+                                            <option value="{{ $status->label() }}">{{ $status->label() }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
                         
                         <div class="table-responsive py-4" id="items-table">
                             <table id="datatables" data-name="stock_entries_table" class="table table-striped table-bordered table-hover" cellspacing="0" width="100%" style="width:100% ">
@@ -159,6 +177,7 @@
                                         <th>Karát</th>
                                         <th>Tárgyleírás</th>
                                         <th>Ügyfél</th>
+                                        <th>Státusz</th>
                                         @can('manage-purchase_tickets', App\User::class)
                                             <th class="disabled-sorting text-right">Műveletek</th>
                                         @endcan
@@ -180,6 +199,7 @@
                                         <th>Karát</th>
                                         <th>Tárgyleírás</th>
                                         <th>Ügyfél</th>
+                                        <th>Státusz</th>
                                         @can('manage-purchase_tickets', App\User::class)
                                             <th class="disabled-sorting text-right">Műveletek</th>
                                         @endcan
@@ -188,10 +208,23 @@
                                 <tbody>
                                     @php
                                         $rows = $itemList->json['tetelek'] ?? [];
+
+                                        // sárga: átadás napja + türelmi idő még nem járt le
+                                        $atadasNapja = $itemList->json['header']['atadas_napja'] ?? null;
+                                        $isPastDeadline = false;
+                                        if ($atadasNapja) {
+                                            try {
+                                                $deadline = \Carbon\Carbon::createFromFormat('Y.m.d', $atadasNapja)
+                                                    ->addDays((int) config('zemef.kenyszerlista_sarga'));
+                                                $isPastDeadline = now()->startOfDay()->greaterThanOrEqualTo($deadline);
+                                            } catch (\Exception $e) {
+                                                $isPastDeadline = false;
+                                            }
+                                        }
                                     @endphp
                                     @foreach ($rows as $item)
                                         @php
-                                            $rowStatus = $item['status'] ?? 0;
+                                            $rowStatus = (int) ($item['status'] ?? 0);
                                             $customer = '';
                                             if (isset($item['ugyfel']) && is_array($item['ugyfel'])) {
                                                 $customer = collect([
@@ -201,8 +234,14 @@
                                                     $item['ugyfel']['cim'] ?? null,
                                                 ])->filter()->implode(', ');
                                             }
+
+                                            // zöld: visszavásárolva vagy termékké alakítva, felülírja a sárgát
+                                            $rowClass = $isPastDeadline ? 'table-warning' : '';
+                                            if ($rowStatus === \App\Enums\ItemListStatus::BOUGHT_BACK->value || $rowStatus === \App\Enums\ItemListStatus::PRODUCT->value) {
+                                                $rowClass = 'table-success';
+                                            }
                                         @endphp
-                                        <tr class="@if($rowStatus == 2) table-warning @endif">
+                                        <tr class="{{ $rowClass }}">
                                             <td>{{ $item['sor'] ?? '-' }}</td>
                                             <td>{{ $item['zalogjegy_szama'] ?? '-' }}</td>
                                             <td>{{ $item['fennallo_hitel'] ?? '-' }}</td>
@@ -217,18 +256,50 @@
                                             <td>{{ $item['karat'] ?? ($item['karat_finomsag'] ?? '-') }}</td>
                                             <td>{{ $item['targyleiras'] ?? '-' }}</td>
                                             <td>{{ $customer !== '' ? $customer : '-' }}</td>
+                                            <td>{{ \App\Enums\ItemListStatus::tryFrom($rowStatus)?->label() ?? '-' }}</td>
                                             
                                             @can('manage-purchase_tickets', App\User::class)
                                             <td>
+                                                <a href="{{ route('item_list.row.show', ['itemList' => $itemList->id, 'sor' => $item['sor'] ?? 0]) }}"
+                                                   class="btn btn-link text-info p-0 mr-2"
+                                                   title="Megtekintés">
+                                                    <i class="fa fa-eye"></i>
+                                                </a>
+
                                                 @if($itemList->status < 2)
-                                                    @if($rowStatus == 0)
-                                                        <a href="#" onclick=" closeItemImport('{{ $item['targyleiras'] ?? '' }}','{{ $item['targyleiras'] ?? '' }}','{{ $item['zalogjegy_szama'] ?? '' }}','{{ $item['netto_suly'] ?? '' }}');" class="btn btn-link btn-warning edit d-inline-block"><i class="fa fa-save"></i></a>
-                                                        <a href="#" onclick="closeItemList('{{ $item['zalogjegy_szama'] ?? '' }}');"  class="fa fa-check text-info"></a>
+                                                    @if((int)$rowStatus === \App\Enums\ItemListStatus::BOUGHT_BACK->value)
+                                                        <span class="text-muted">Visszavásárolva</span>
                                                     @else
-                                                        <i class="fa fa-check text-success"></i>
+                                                        <a href="{{ route('item_list.row.edit', ['itemList' => $itemList->id, 'sor' => $item['sor'] ?? 0]) }}"
+                                                           class="btn btn-link btn-warning p-0 mr-2"
+                                                           title="Szerkesztés">
+                                                            <i class="fa fa-edit"></i>
+                                                        </a>
+
+                                                        <a href="#"
+                                                               onclick="closeItemList('{{ $item['sor'] ?? '' }}', '{{ $item['zalogjegy_szama'] ?? '' }}'); return false;"
+                                                               class="fa fa-check text-info mr-2"
+                                                               title="Lezárás"></a>
+
+                                                        <a href="#"
+                                                           onclick="confirmBoughtBack('{{ $item['sor'] ?? '' }}', '{{ $item['zalogjegy_szama'] ?? '' }}'); return false;"
+                                                           class="fa fa-undo text-secondary"
+                                                           title="Visszavásárlás"></a>
+
+                                                           <a href="{{ route('item_list.row.transfer', ['itemList' => $itemList->id, 'sor' => $item['sor'] ?? 0]) }}"
+                                                           class="btn btn-link text-primary p-0 ml-2"
+                                                           title="Átemelés a rendszerbe (ékszer vásárlás rögzítése)"
+                                                           onclick="return confirm('Biztosan átemeli ezt a tételt az ékszer vásárlás rendszerbe?');">
+                                                            <i class="fa fa-file-import"></i>
+                                                        </a>
                                                     @endif
                                                 @else
                                                     Lezárva
+                                                    @if((int)$rowStatus === \App\Enums\ItemListStatus::PRODUCT->value)
+                                                        <span class="text-success ml-2" title="Átemelve a rendszerbe"><i class="fa fa-check-circle"></i></span>
+                                                    @elseif((int)$rowStatus !== \App\Enums\ItemListStatus::BOUGHT_BACK->value)
+                                                        
+                                                    @endif
                                                 @endif
                                             </td>
                                             @endcan
@@ -253,6 +324,8 @@
 
 @push('js')
     <script type="text/javascript">
+        const BOUGHT_BACK_STATUS = {{ \App\Enums\ItemListStatus::BOUGHT_BACK->value }};
+
         function onlyNumbers(str) {
             return /^\d+$/.test(str);
         }
@@ -285,7 +358,31 @@
                 }
             });
 
-            var table = $('#datatables').DataTable();
+            if ($.fn.dataTable.isDataTable('#datatables')) {
+                $('#datatables').DataTable().destroy();
+            }
+
+            var table = $('#datatables').DataTable({
+                dom: 'lrtip',
+                initComplete: function() {
+                    let api = this.api();
+
+                    let zalogjegyColIdx = 1;
+                    $(api.column(zalogjegyColIdx).footer()).empty();
+
+                    let statusColIdx = 14;
+                    $(api.column(statusColIdx).footer()).empty();
+                }
+            });
+
+            $('#filter_zalogjegy').on('keyup change clear', function() {
+                table.column(1).search(this.value).draw();
+            });
+
+            $('#filter_status').on('change', function() {
+                let val = this.value;
+                table.column(14).search(val ? '^' + val + '$' : '', true, false).draw();
+            });
 
             $('body').on('click', '.applyBtn', function(e) {
                 var hlpr = $('input[placeholder=Sorszám]').val();
@@ -307,6 +404,8 @@
                 // Close the modal
                 $('#itemlistStatusModal').modal('hide');
                 const item_row1 = $('#modal_itemlist_id').val();
+                const item_sor = $('#modal_item_sor').val();
+                const status = parseInt($('#modal_new_status').val(), 10) || 1;
 
                 $.ajax({
                     url: "{{ route('item_list.substatus') }}", // Use the dynamically generated URL
@@ -315,7 +414,8 @@
                     data: {
                         item_list_id: {{$itemList->id}},
                         item_row1: item_row1,
-                        status: 1,
+                        item_sor: item_sor,
+                        status: status,
                     }
                 })
                 .done(function( msg ) {
@@ -337,10 +437,10 @@
                 } else {
                     $('#sei_error').hide();
                 }
-                
+
                 // Close the modal
                 $('#itemlistStatusModal').modal('hide');
-                
+
                 $.ajax({
                     url: "{{ route('item-list-items.store') }}", // Use the dynamically generated URL
                     method: "POST",
@@ -376,7 +476,7 @@
                         setTimeout(() => {
                             location.reload();
                         }, 2000);
-                    
+
                 })
             });
 
@@ -490,9 +590,20 @@
         }
 
 
-        function closeItemList(id){
+        function closeItemList(itemSor, ticketNumber){
+            $('#itemlistStatusModalText').text('Biztosan le akarja zárni?');
+            $('#modal_new_status').val('1');
+            $('#modal_item_sor').val(itemSor);
             $('#itemlistStatusModal').modal('show');
-            $('#modal_itemlist_id').val(id);
+            $('#modal_itemlist_id').val(ticketNumber);
+        }
+
+        function confirmBoughtBack(itemSor, ticketNumber){
+            $('#itemlistStatusModalText').text('Biztosan vissza akarja vásárolni ezt a tételt?');
+            $('#modal_new_status').val(BOUGHT_BACK_STATUS);
+            $('#modal_item_sor').val(itemSor);
+            $('#modal_itemlist_id').val(ticketNumber);
+            $('#itemlistStatusModal').modal('show');
         }
         
         function closeItemImport(sei_name,sei_description,sei_factory_number,sei_weight){

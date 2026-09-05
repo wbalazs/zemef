@@ -53,6 +53,19 @@
                             @include('alerts.success')
                             @include('alerts.errors')
                         </div>
+
+                        <div class="col-12 mt-2">
+                            <div class="row align-items-end">
+                                <div class="col-md-4 form-group mb-2">
+                                    <label for="filter_bizonylat_szama" class="form-label">Bizonylat száma</label>
+                                    <input type="text" id="filter_bizonylat_szama" class="form-control form-control-sm" placeholder="Szűrés bizonylat száma alapján...">
+                                </div>
+                                <div class="col-md-4 form-group mb-2">
+                                    <label for="filter_atvevo_bolt" class="form-label">Átvétel helye</label>
+                                    <input type="text" id="filter_atvevo_bolt" class="form-control form-control-sm" placeholder="Szűrés átvétel helye alapján...">
+                                </div>
+                            </div>
+                        </div>
                         
                         <div class="table-responsive py-4" id="items-table">
                             <table id="datatables" data-name="stock_entries_table" class="table table-striped table-bordered table-hover" cellspacing="0" width="100%" style="width:100% ">
@@ -139,7 +152,21 @@
     
         $(document).ready(function() {
 
-            var table = $('#datatables').DataTable();
+            if ($.fn.dataTable.isDataTable('#datatables')) {
+                $('#datatables').DataTable().destroy();
+            }
+
+            var table = $('#datatables').DataTable({
+                dom: 'lrtip'
+            });
+
+            $('#filter_bizonylat_szama').on('keyup change clear', function() {
+                table.column(2).search(this.value).draw();
+            });
+
+            $('#filter_atvevo_bolt').on('keyup change clear', function() {
+                table.column(7).search(this.value).draw();
+            });
 
             $('body').on('click', '.applyBtn', function(e) {
                 var hlpr = $('input[placeholder=Sorszám]').val();

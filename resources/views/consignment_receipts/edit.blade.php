@@ -45,31 +45,19 @@
                                             <h6 class="heading-small text-muted mb-4">Bizományosi átvétel adatai</h6>
                                             <hr>
                                             @php
-                                                $selectedHeaderCustomerMarkingId = old('customer_marking_id', $consignment_receipt->header_data['customer_marking_id'] ?? '');
                                                 $selectedHeaderCategoryId = old('category_id', $consignment_receipt->header_data['category_id'] ?? 1);
                                                 $selectedHeaderVatType = old('vat_type', $consignment_receipt->header_data['vat_type_id'] ?? '');
                                                 $selectedHeaderKaratId = old('karat_id', $consignment_receipt->header_data['karat_id'] ?? '');
                                                 $selectedHeaderLabelType = old('label_type_default', $consignment_receipt->header_data['label_type'] ?? '');
                                                 $selectedHeaderCategory2Id = old('category2_id', $consignment_receipt->header_data['category2_id'] ?? '');
                                                 $selectedHeaderTermekTipusId = old('termek_tipus_id', $consignment_receipt->header_data['termek_tipus_id'] ?? '');
+                                                $selectedHeaderConsignmentStatus = old('consignment_status', $consignment_receipt->header_data['consignment_status'] ?? 1);
                                             @endphp
                                             <div class="row">
                                                 <div class="col-lg-2">
                                                     <div class="form-group">
-                                                        <label class="form-control-label">Szállító</label>
-                                                        <select name="customer_marking_id" id="vzj" class="selectpicker form-control" data-live-search="true">
-                                                            <option value="">- válasszon -</option>
-                                                            @foreach($customer_markings as $customer_marking)
-                                                                <option
-                                                                    value="{{ $customer_marking->id }}"
-                                                                    data-price="{{ optional($customer_marking->productStatus)->price }}"
-                                                                    data-vat-type-id="{{ optional($customer_marking->productStatus)->vat_type_id }}"
-                                                                    @if((string) $selectedHeaderCustomerMarkingId === (string) $customer_marking->id) selected @endif
-                                                                >
-                                                                    {{ $customer_marking->name }}
-                                                                </option>
-                                                            @endforeach
-                                                        </select>
+                                                        <label class="form-control-label">Iktatószám</label>
+                                                        <input type="text" class="form-control" name="filenumber" id="filenumber" value="{{ old('filenumber', $consignment_receipt->header_data['filenumber'] ?? '') }}">
                                                     </div>
                                                 </div>
                                                 <div class="col-lg-2">
@@ -168,7 +156,11 @@
                                                     <fieldset>
                                                         <div class="form-group">
                                                             <label class="form-control-label{{ $errors->has('customer_id') ? ' has-danger' : '' }}">
-                                                                Ügyfél</label>
+                                                                Ügyfél
+                                                                <button @if($consignment_receipt->printed_at) disabled @endif type="button" class="btn btn-sm btn-primary ml-2" data-toggle="modal" data-target="#new_customer_modal" title="Új ügyfél">
+                                                                    <i class="fa fa-plus"></i>
+                                                                </button>
+                                                            </label>
                                                             <select @if($consignment_receipt->printed_at) disabled @endif required name="customer_id" class="select2 form-control{{ $errors->has('customer_id') ? ' is-invalid' : '' }}">
                                                                 <option value="">- válasszon -</option>
                                                                 @foreach($customers as $customer)
@@ -317,11 +309,11 @@
                                                 <div class="col-lg-2">
                                                     <fieldset>
                                                         <div class="form-group">
-                                                            <label @if($consignment_receipt->printed_at) disabled @endif class="form-control-label{{ $errors->has('status') ? ' has-danger' : '' }}">
-                                                                Státusz</label>
-                                                            <select @if($consignment_receipt->printed_at) disabled @endif title="- válasszon -" name="status" disabled class="select2 form-control{{ $errors->has('status') ? ' is-invalid' : '' }}">
-                                                                <option @if($consignment_receipt->status != "2") selected @endif value="1">Folyamatban</option>
-                                                                <option @if($consignment_receipt->status == "2") selected @endif value="2">Feldolgozva</option>
+                                                            <label class="form-control-label">Státusz</label>
+                                                            <select name="consignment_status" id="consignment_status" class="selectpicker form-control" required>
+                                                                @foreach($consignment_receipt_statuses as $statusValue => $statusLabel)
+                                                                    <option value="{{ $statusValue }}" {{ (string) $selectedHeaderConsignmentStatus === (string) $statusValue ? 'selected' : '' }}>{{ $statusLabel }}</option>
+                                                                @endforeach
                                                             </select>
                                                         </div>
                                                     </fieldset>
@@ -415,20 +407,176 @@
 
                                                 <hr>
                                                 <div class="cri_item_wrapper @if($item->status != 2) orange_bg @else green_bg @endif">
-                                                    <input type="hidden" name="cri_id" class="cri_id" value="{{ $item->inventory_id }}">
-                                                    <div class="row">
+                                                    @php
+                                                        $selectedConsignmentStatus = $item->item_data['consignment_status'] ?? $selectedHeaderConsignmentStatus;
+                                                        $selectedKaratId = ($item->item_data['karat_id'] ?? '') ?: ($item->item_data['karats'][0] ?? '');
+                                                        $selectedCategory2Id = $item->item_data['category2_id']
+                                                            ?? (is_array($item->item_data['product_categories_2'] ?? null)
+                                                                ? ($item->item_data['product_categories_2'][0] ?? '')
+                                                                : ($item->item_data['product_categories_2'] ?? ''));
+                                                        $selectedTermekTipusId = $item->item_data['termek_tipus_id'] ?? $item->termek_tipus_id;
+                                                    @endphp
+                                                    <input type="hidden" name="cri_id" class="cri_id inventory_id" value="{{ $item->inventory_id }}">
 
+                                                    <div class="row">
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
+                                                                <label class="form-control-label">Kategória</label>
+                                                                <select @if($consignment_receipt->printed_at) disabled @endif class="selectpicker form-control cri_category_id">
+                                                                    @include('categories.category_options', ['categories' => $categories, 'category_id' => old('category_id', $item->item_data['category_id'] ?? 1)])
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
+                                                                <label class="form-control-label">Beszerzési ár</label>
+                                                                <input @if($consignment_receipt->printed_at) disabled @endif type="number" class="form-control cri_beszerzesi_ar" value="{{ $item->item_data['beszerzesi_ar'] ?? '' }}">
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
+                                                                <label class="form-control-label">Eladási ár</label>
+                                                                <input @if($consignment_receipt->printed_at) disabled @endif type="number" class="form-control cri_eladasi_ar" value="{{ $item->item_data['eladasi_ar'] ?? '' }}">
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
+                                                                <label class="form-control-label">Áfa típus</label>
+                                                                <select @if($consignment_receipt->printed_at) disabled @endif class="selectpicker form-control cri_vat_type">
+                                                                    @foreach($vat_types as $vat_type)
+                                                                        <option value="{{ $vat_type->vat_type_id }}" @if((string) old('vat_type_id', $item->item_data['vat_type_id'] ?? '') === (string) $vat_type->vat_type_id) selected @endif>
+                                                                            {{ $vat_type->name.' - '.$vat_type->value }} %
+                                                                        </option>
+                                                                    @endforeach
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group" style="margin-left:20px;">
+                                                                <br />
+                                                                <input @if($consignment_receipt->printed_at) disabled @endif type="checkbox" class="form-check-input cri_hallmarks" value="1" @if(old('hallmarks', $item->item_data['hallmarks'] ?? 0) == 1) checked @endif>
+                                                                <label class="form-control-label">Fémjelzés</label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="row mt-2">
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
+                                                                <label class="form-control-label">Státusz</label>
+                                                                <select @if($consignment_receipt->printed_at) disabled @endif class="selectpicker form-control cri_consignment_status">
+                                                                    @foreach($consignment_receipt_statuses as $statusValue => $statusLabel)
+                                                                        <option value="{{ $statusValue }}" {{ (string) $selectedConsignmentStatus === (string) $statusValue ? 'selected' : '' }}>{{ $statusLabel }}</option>
+                                                                    @endforeach
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
+                                                                <label class="form-control-label">Karát</label>
+                                                                <select @if($consignment_receipt->printed_at) disabled @endif class="selectpicker form-control cri_karat_id">
+                                                                    <option value="">- válasszon -</option>
+                                                                    @foreach($karats ?? [] as $karat)
+                                                                        <option value="{{ $karat->karat_id }}" @if((string) $selectedKaratId === (string) $karat->karat_id) selected @endif>{{ $karat->name }}</option>
+                                                                    @endforeach
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
+                                                                <label class="form-control-label">Szín</label>
+                                                                <select @if($consignment_receipt->printed_at) disabled @endif multiple class="selectpicker form-control cri_colors">
+                                                                    @foreach($product_colors ?? [] as $color)
+                                                                        <option value="{{ $color->product_color_id }}" @if(in_array($color->product_color_id, old('colors', $item->item_data['colors'] ?? []))) selected @endif>{{ $color->name }}</option>
+                                                                    @endforeach
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
+                                                                <label class="form-control-label">Kategória II</label>
+                                                                <select @if($consignment_receipt->printed_at) disabled @endif class="selectpicker form-control cri_category2_id">
+                                                                    <option value="">- válasszon -</option>
+                                                                    @foreach($category2s ?? [] as $category2)
+                                                                        <option value="{{ $category2->category2_id }}" @if((string) $selectedCategory2Id === (string) $category2->category2_id) selected @endif>{{ $category2->name }}</option>
+                                                                    @endforeach
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
+                                                                <label class="form-control-label">Méret</label>
+                                                                <input @if($consignment_receipt->printed_at) disabled @endif type="text" class="form-control cri_size" value="{{ $item->item_data['size'] ?? '' }}">
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
+                                                                <label class="form-control-label">Súly</label>
+                                                                <input @if($consignment_receipt->printed_at) disabled @endif type="number" class="form-control cri_weight" name="cri_weight[]" value="{{ $item->weight }}">
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="row mt-2">
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
+                                                                <label class="form-control-label">Termék típus</label>
+                                                                <select @if($consignment_receipt->printed_at) disabled @endif class="selectpicker form-control cri_termek_tipus_id">
+                                                                    <option value="">- válasszon -</option>
+                                                                    @include('products.product_types_options', ['product_types' => $product_types, 'product_type_id' => $selectedTermekTipusId])
+                                                                </select>
+                                                            </div>
+                                                        </div>
                                                         <div class="col-lg-2">
                                                             <fieldset>
                                                                 <div class="form-group">
-                                                                    <label class="form-control-label{{ $errors->has('cri_name') ? ' has-danger' : '' }}">
-                                                                        Megnevezés</label>
-                                                                    <select disabled required name="cri_name[]" class="select2 cri_name form-control{{ $errors->has('cri_name') ? ' is-invalid' : '' }}">
-                                                                        <option value="">- válasszon -</option>
-                                                                        @foreach($products as $product)
-                                                                            <option @if($product->product_id == $item->product_id) selected @endif value="{{ $product->product_id }}" >{{ $product->name }}</option>
-                                                                        @endforeach
-                                                                    </select>
+                                                                    <div class="form-check">
+                                                                        <label class="form-check-label">
+                                                                            <input @if($consignment_receipt->printed_at) disabled @endif @if($item->product?->is_unique == 1) checked @endif class="form-check-input cri_is_unique" type="checkbox" value="2" data-gtm-form-interact-field-id="1" name="cri_is_unique[]">
+                                                                            <span class="form-check-sign"></span>
+                                                                            Egyedi?
+                                                                        </label>
+                                                                    </div>
+                                                                </div>
+                                                            </fieldset>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <fieldset>
+                                                                <div class="form-group">
+                                                                    <label class="form-control-label">Leírás</label>
+                                                                    <input @if($consignment_receipt->printed_at) disabled @endif type="text" class="form-control cri_description" name="cri_description[]" value="{{ $item->description }}">
+                                                                </div>
+                                                            </fieldset>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <fieldset>
+                                                                <div class="form-group">
+                                                                    <label class="form-control-label">Mennyiség</label>
+                                                                    <input @if($consignment_receipt->printed_at) disabled @endif type="number" class="form-control cri_quantity" name="cri_quantity[]" value="{{ $item->quantity }}">
+                                                                </div>
+                                                            </fieldset>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <fieldset>
+                                                                <div class="form-group">
+                                                                    <label class="form-control-label">Egységár</label>
+                                                                    <input @if($consignment_receipt->printed_at) disabled @endif type="number" class="form-control cri_oneprice" name="cri_oneprice[]" value="{{ $item->oneprice }}">
+                                                                </div>
+                                                            </fieldset>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <fieldset>
+                                                                <div class="form-group">
+                                                                    <label class="form-control-label">Ár</label>
+                                                                    <input @if($consignment_receipt->printed_at) disabled @endif type="number" class="form-control cri_price" name="cri_price[]" value="{{ $item->price }}">
+                                                                </div>
+                                                            </fieldset>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <fieldset>
+                                                                <div class="form-group">
+                                                                    <label class="form-control-label">Gyártási szám</label>
+                                                                    <input @if($consignment_receipt->printed_at) disabled @endif type="text" class="form-control cri_factory_number" name="cri_factory_number[]" value="{{ $item->factory_number }}">
                                                                 </div>
                                                             </fieldset>
                                                         </div>
@@ -437,71 +585,32 @@
                                                                 <div class="form-group">
                                                                     <div class="form-check">
                                                                         <label class="form-check-label">
-                                                                        <input @if($item->product?->is_unique == 1) checked @endif class="form-check-input cri_is_unique" type="checkbox" value="2" data-gtm-form-interact-field-id="1" disabled name="cri_is_unique[]">
-                                                                        <span class="form-check-sign"></span>
-                                                                        Egyedi?
+                                                                            <input @if($consignment_receipt->printed_at) disabled @endif type="checkbox" class="form-check-input cri_sell_elsewhere" value="1" {{ (int) ($item->item_data['sell_elsewhere'] ?? 0) === 1 ? 'checked' : '' }}>
+                                                                            <span class="form-check-sign"></span>
+                                                                            Máshol értékesíthető I/N
                                                                         </label>
                                                                     </div>
                                                                 </div>
                                                             </fieldset>
                                                         </div>
-                                                        <div class="col-lg-3">
-                                                            <fieldset>
-                                                                <div class="form-group">
-                                                                    <label class="form-control-label">
-                                                                        Leírás</label>
-                                                                    <input @if($consignment_receipt->printed_at) disabled @endif type="text" class="form-control cri_description" name="cri_description[]" value="{{ $item->description }}">
-                                                                </div>
-                                                            </fieldset>
-                                                        </div>
-                                                        <div class="col-lg-1">
-                                                            <fieldset>
-                                                                <div class="form-group">
-                                                                    <label class="form-control-label">
-                                                                        Mennyiség</label>
-                                                                    <input disabled type="number" class="form-control cri_quantity" name="cri_quantity[]" value="{{ $item->quantity }}">
-                                                                </div>
-                                                            </fieldset>
-                                                        </div>
                                                         <div class="col-lg-2">
                                                             <fieldset>
                                                                 <div class="form-group">
-                                                                    <label class="form-control-label">
-                                                                        Egységár</label>
-                                                                    <input @if($consignment_receipt->printed_at) disabled @endif type="number" class="form-control cri_oneprice" name="cri_oneprice[]" value="{{ $item->oneprice }}">
-                                                                </div>
-                                                            </fieldset>
-                                                        </div>
-                                                        <div class="col-lg-2">
-                                                            <fieldset>
-                                                                <div class="form-group">
-                                                                    <label class="form-control-label">
-                                                                        Ár</label>
-                                                                    <input @if($consignment_receipt->printed_at) disabled @endif type="number" class="form-control cri_price" name="cri_price[]" value="{{ $item->price }}">
-                                                                </div>
-                                                            </fieldset>
-                                                        </div>
-                                                    </div>
-                                                    <div class="row">
-                                                        <div class="col-lg-2">
-                                                            <fieldset>
-                                                                <div class="form-group">
-                                                                    <label class="form-control-label">
-                                                                        Gyártási szám</label>
-                                                                    <input @if($consignment_receipt->printed_at) disabled @endif type="text" class="form-control cri_factory_number" name="cri_factory_number[]" value="{{ $item->factory_number }}">
-                                                                </div>
-                                                            </fieldset>
-                                                        </div>
-                                                        <div class="col-lg-2">
-                                                            <fieldset>
-                                                                <div class="form-group">
-                                                                    <label class="form-control-label">
-                                                                        Súly</label>
-                                                                    <input @if($consignment_receipt->printed_at) disabled @endif type="number" class="form-control cri_weight" name="cri_weight[]" value="{{ $item->weight }}">
+                                                                    <div class="form-check">
+                                                                        <label class="form-check-label">
+                                                                            <input @if($consignment_receipt->printed_at) disabled @endif type="checkbox" class="form-check-input cri_webshop" value="1" {{ (int) ($item->item_data['webshop'] ?? 0) === 1 ? 'checked' : '' }}>
+                                                                            <span class="form-check-sign"></span>
+                                                                            Webshop-ba I/N
+                                                                        </label>
+                                                                    </div>
                                                                 </div>
                                                             </fieldset>
                                                         </div>
                                                         <div class="col-lg-8">
+                                                            @if(!$consignment_receipt->printed_at)
+                                                                <button type="button" class="btn btn-warning cri_button save_cri_item_changes" data-inventory_id="{{ $item->inventory_id }}">Tétel módosítás mentése <i class="fa fa-save"></i></button>
+                                                            @endif
+                                                            
                                                             <button data-inventory_id="{{ $item->inventory_id }}" data-toggle="modal" data-target="#cri_images_modal_{{ $item->inventory_id }}" type="button" class="btn btn-success cri_button consignment_receipt_item_images">Képek <i class="fa fa-image"></i></button>
                                                             <button data-inventory_id="{{ $item->inventory_id }}" class="btn btn-success cri_button captureButton"><i class="fa fa-camera"></i> Kép készítése</button>
                                                             <input type="file" accept="image/*" capture="camera" name="image" class="imageInput" style="display: none;">
@@ -586,38 +695,6 @@
                                                     </div>
                                                 </div>
 
-                                                
-                                                <div class="modal fade" id="cri_product_modal_{{ $item->inventory_id }}">
-                                                    <div class="modal-dialog modal-lg">
-                                                        <div class="modal-content">
-                                                      
-                                                            <!-- Modal Header -->
-                                                            <div class="modal-header">
-                                                                <h4 class="modal-title">Termék adatlap</h4>
-                                                                <button type="button" class="close" data-dismiss="modal">&times;</button>
-                                                            </div>
-                                                            
-                                                            <!-- Modal body -->
-                                                            <div class="modal-body nomargin">
-                                                                
-                                                                <form id="product_form_{{ $item->inventory_id }}" method="post" action="">
-                                                                    @include('products.edit_body', ['product' => $item->product, 'categories' => $categories, 'hallmarks' => $hallmarks, 'product_colors' => $product_colors, 'product_statuses' => $product_statuses, 'product_signs' => $product_signs])
-                                                                </form>
-
-                                                            </div>
-                                                            
-                                                            <!-- Modal footer -->
-                                                            <hr>
-                                                            <div class="modal-footer">
-                                                                <button data-inventory_id="{{ $item->inventory_id }}" type="button" class="btn btn-success fr save_product">Mentés</button>
-                                                                <button type="button" class="btn btn-danger fr" data-dismiss="modal">Bezárás</button>
-                                                            </div>
-                                                        
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-
 
                                             @endforeach
 
@@ -626,25 +703,8 @@
 
                                                 <hr>
                                                 <div class="orange_bg cri_empty_row">
-                                                    <input type="hidden" name="cri_id" class="cri_id">
+                                                    <input type="hidden" name="cri_id" class="cri_id inventory_id">
                                                     <div class="row">
-                                                        <div class="col-lg-2">
-                                                            <div class="form-group">
-                                                                <label class="form-control-label">Szállító</label>
-                                                                <select class="selectpicker form-control cri_customer_marking_id" data-live-search="true">
-                                                                    <option value="">- válasszon -</option>
-                                                                    @foreach($customer_markings as $customer_marking)
-                                                                        <option
-                                                                            value="{{ $customer_marking->id }}"
-                                                                            data-price="{{ optional($customer_marking->productStatus)->price }}"
-                                                                            data-vat-type-id="{{ optional($customer_marking->productStatus)->vat_type_id }}"
-                                                                        >
-                                                                            {{ $customer_marking->name }}
-                                                                        </option>
-                                                                    @endforeach
-                                                                </select>
-                                                            </div>
-                                                        </div>
                                                         <div class="col-lg-2">
                                                             <div class="form-group">
                                                                 <label class="form-control-label">Kategória</label>
@@ -686,11 +746,10 @@
                                                     <div class="row mt-2">
                                                         <div class="col-lg-2">
                                                             <div class="form-group">
-                                                                <label class="form-control-label">Állapot</label>
-                                                                <select class="selectpicker form-control cri_statuses">
-                                                                    <option value="">- válasszon -</option>
-                                                                    @foreach($product_statuses as $product_status)
-                                                                        <option value="{{ $product_status->product_status_id }}">{{ $product_status->name }}</option>
+                                                                <label class="form-control-label">Státusz</label>
+                                                                <select class="selectpicker form-control cri_consignment_status">
+                                                                    @foreach($consignment_receipt_statuses as $statusValue => $statusLabel)
+                                                                        <option value="{{ $statusValue }}" {{ (string) $selectedHeaderConsignmentStatus === (string) $statusValue ? 'selected' : '' }}>{{ $statusLabel }}</option>
                                                                     @endforeach
                                                                 </select>
                                                             </div>
@@ -735,27 +794,21 @@
                                                         </div>
                                                         <div class="col-lg-2">
                                                             <div class="form-group">
+                                                                <label class="form-control-label">Súly</label>
+                                                                <input type="number" class="form-control cri_weight" name="cri_weight[]">
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="row mt-2">
+
+                                                        <div class="col-lg-2">
+                                                            <div class="form-group">
                                                                 <label class="form-control-label">Termék típus</label>
                                                                 <select class="selectpicker form-control cri_termek_tipus_id">
                                                                     <option value="">- válasszon -</option>
                                                                     @include('products.product_types_options', ['product_types' => $product_types, 'product_type_id' => ''])
                                                                 </select>
                                                             </div>
-                                                        </div>
-                                                    </div>
-                                                    <div class="row">
-
-                                                        <div class="col-lg-2">
-                                                            <fieldset>
-                                                                <div class="form-group">
-                                                                    <label class="form-control-label{{ $errors->has('cri_name') ? ' has-danger' : '' }}">
-                                                                        Megnevezés
-                                                                    </label>
-                                                                    <select @if($consignment_receipt->printed_at) disabled @endif required name="cri_name[]" class="select2 cri_name form-control{{ $errors->has('cri_name') ? ' is-invalid' : '' }}">
-                                                                        <option value="">- válasszon -</option>
-                                                                    </select>
-                                                                </div>
-                                                            </fieldset>
                                                         </div>
                                                         <div class="col-lg-2">
                                                             <fieldset>
@@ -770,7 +823,7 @@
                                                                 </div>
                                                             </fieldset>
                                                         </div>
-                                                        <div class="col-lg-4">
+                                                        <div class="col-lg-2">
                                                             <fieldset>
                                                                 <div class="form-group">
                                                                     <label class="form-control-label">
@@ -818,9 +871,26 @@
                                                         <div class="col-lg-2">
                                                             <fieldset>
                                                                 <div class="form-group">
-                                                                    <label class="form-control-label">
-                                                                        Súly</label>
-                                                                    <input type="number" class="form-control cri_weight" name="cri_weight[]">
+                                                                    <div class="form-check">
+                                                                        <label class="form-check-label">
+                                                                            <input type="checkbox" class="form-check-input cri_sell_elsewhere" value="1">
+                                                                            <span class="form-check-sign"></span>
+                                                                            Máshol értékesíthető I/N
+                                                                        </label>
+                                                                    </div>
+                                                                </div>
+                                                            </fieldset>
+                                                        </div>
+                                                        <div class="col-lg-2">
+                                                            <fieldset>
+                                                                <div class="form-group">
+                                                                    <div class="form-check">
+                                                                        <label class="form-check-label">
+                                                                            <input type="checkbox" class="form-check-input cri_webshop" value="1">
+                                                                            <span class="form-check-sign"></span>
+                                                                            Webshop-ba I/N
+                                                                        </label>
+                                                                    </div>
                                                                 </div>
                                                             </fieldset>
                                                         </div>
@@ -852,6 +922,114 @@
                 </div>
 
 
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="new_customer_modal" tabindex="-1" role="dialog" aria-labelledby="new_customer_modal_label" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="new_customer_modal_label">Új ügyfél</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Bezárás">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="new_customer_form" method="post" action="{{ route('customers.modal.store') }}">
+                        @csrf
+                        <div class="form-group">
+                            <label class="mr-4">
+                                <input type="radio" name="is_company" value="0" checked>
+                                Magánszemély
+                            </label>
+                            <label>
+                                <input type="radio" name="is_company" value="1">
+                                Cég
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="new_customer_name">Név</label>
+                            <input type="text" class="form-control" id="new_customer_name" name="name" required>
+                        </div>
+                        <div class="new-customer-private-fields">
+                            <div class="row">
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="new_customer_birth_name">Születési név</label>
+                                        <input type="text" class="form-control" id="new_customer_birth_name" name="birth_name">
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="new_customer_mothers_name">Anyja neve</label>
+                                        <input type="text" class="form-control" id="new_customer_mothers_name" name="mothers_name">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="new_customer_birth_place">Születési hely</label>
+                                        <input type="text" class="form-control" id="new_customer_birth_place" name="birth_place">
+                                    </div>
+                                </div>
+                                <div class="col-lg-6">
+                                    <div class="form-group">
+                                        <label for="new_customer_birth_date">Születési idő</label>
+                                        <input type="date" class="form-control" id="new_customer_birth_date" name="birth_date">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="new_customer_tax_identity">Adóazonosító jel</label>
+                                <input type="text" class="form-control" id="new_customer_tax_identity" name="tax_identity" maxlength="10" inputmode="numeric" pattern="^\d{10}$" title="Formátum: 10 számjegy" placeholder="1234567890">
+                            </div>
+                        </div>
+                        <div class="new-customer-company-fields d-none">
+                            <div class="form-group">
+                                <label for="new_customer_tax_number">Adószám</label>
+                                <input type="text" class="form-control" id="new_customer_tax_number" name="tax_number" maxlength="12" inputmode="numeric" pattern="^\d{7}-\d-\d{2}$" title="Formátum: xxxxxxx-y-zz" placeholder="1234567-8-90">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-lg-6">
+                                <div class="form-group">
+                                    <label for="new_customer_email">E-mail</label>
+                                    <input type="email" class="form-control" id="new_customer_email" name="email" required>
+                                </div>
+                            </div>
+                            <div class="col-lg-6">
+                                <div class="form-group">
+                                    <label for="new_customer_phone">Telefonszám</label>
+                                    <input type="text" class="form-control" id="new_customer_phone" name="phone" required>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-lg-6">
+                                <div class="form-group">
+                                    <label for="new_customer_zip">Irányítószám</label>
+                                    <select class="form-control" id="new_customer_zip" name="zip" required></select>
+                                </div>
+                            </div>
+                            <div class="col-lg-6">
+                                <div class="form-group">
+                                    <label for="new_customer_city">Település</label>
+                                    <select class="form-control" id="new_customer_city" name="city" required></select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="new_customer_address">Cím</label>
+                            <input type="text" class="form-control" id="new_customer_address" name="address" required>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Mégse</button>
+                    <button type="submit" form="new_customer_form" class="btn btn-primary">Mentés</button>
+                </div>
             </div>
         </div>
     </div>
@@ -1148,6 +1326,117 @@
                 tags: true
             });
 
+            $('#new_customer_zip').select2({
+                theme: 'bootstrap4',
+                dropdownParent: $('#new_customer_modal'),
+                ajax: {
+                    url: '/ajax/get-zips',
+                    dataType: 'json',
+                    delay: 250,
+                    data: function(params) {
+                        return { term: params.term };
+                    },
+                    processResults: function(data) {
+                        return {
+                            results: $.map(data, function(zip) {
+                                return { id: zip.id, text: zip.name };
+                            })
+                        };
+                    },
+                    cache: true
+                },
+                minimumInputLength: 2,
+                placeholder: 'Irányítószám'
+            });
+
+            $('#new_customer_city').select2({
+                theme: 'bootstrap4',
+                dropdownParent: $('#new_customer_modal'),
+                placeholder: 'Település'
+            });
+
+            function updateNewCustomerTypeFields() {
+                const isCompany = $('#new_customer_form input[name="is_company"]:checked').val() === '1';
+                $('.new-customer-private-fields').toggleClass('d-none', isCompany);
+                $('.new-customer-company-fields').toggleClass('d-none', !isCompany);
+                $('.new-customer-private-fields input').prop('required', !isCompany);
+                $('.new-customer-company-fields input').prop('required', isCompany);
+            }
+
+            $('#new_customer_form input[name="is_company"]').on('change', updateNewCustomerTypeFields);
+            updateNewCustomerTypeFields();
+
+            function formatNewCustomerTaxIdentity(rawValue) {
+                return (rawValue || '').replace(/\D/g, '').substring(0, 10);
+            }
+
+            function formatNewCustomerTaxNumber(rawValue) {
+                const digits = (rawValue || '').replace(/\D/g, '').substring(0, 10);
+
+                if (digits.length <= 7) {
+                    return digits;
+                }
+                if (digits.length <= 8) {
+                    return digits.substring(0, 7) + '-' + digits.substring(7);
+                }
+
+                return digits.substring(0, 7) + '-' + digits.substring(7, 8) + '-' + digits.substring(8, 10);
+            }
+
+            $('#new_customer_tax_identity').on('input', function() {
+                $(this).val(formatNewCustomerTaxIdentity($(this).val()));
+            });
+
+            $('#new_customer_tax_number').on('input', function() {
+                $(this).val(formatNewCustomerTaxNumber($(this).val()));
+            });
+
+            $('#new_customer_zip').on('select2:select', function(e) {
+                $.ajax({
+                    url: '/ajax/get-cities/' + e.params.data.id,
+                    type: 'GET'
+                }).done(function(data) {
+                    const $city = $('#new_customer_city').empty();
+                    $.each(data, function(_, city) {
+                        $city.append(new Option(city.name, city.city_id));
+                    });
+                    $city.trigger('change');
+                });
+            });
+
+            $('#new_customer_form').on('submit', function(e) {
+                e.preventDefault();
+
+                const $form = $(this);
+                $form.find('.is-invalid').removeClass('is-invalid');
+                $form.find('.invalid-feedback').remove();
+
+                $.ajax({
+                    url: $form.attr('action'),
+                    method: 'POST',
+                    data: $form.serialize()
+                }).done(function(response) {
+                    const newCustomer = response.data;
+                    const newOption = new Option(newCustomer.name, newCustomer.customer_id, true, true);
+                    $('select[name=customer_id]').append(newOption).trigger('change');
+                    $('#new_customer_modal').modal('hide');
+                    $form[0].reset();
+                    $('#new_customer_zip, #new_customer_city').empty().trigger('change');
+                    updateNewCustomerTypeFields();
+                    $.notify({ icon: 'done', message: response.message }, { type: 'success', timer: 3000, placement: { from: 'top', align: 'right' } });
+                }).fail(function(xhr) {
+                    if (xhr.status === 422 && xhr.responseJSON && xhr.responseJSON.errors) {
+                        $.each(xhr.responseJSON.errors, function(fieldName, messages) {
+                            const $field = $form.find('[name="' + fieldName + '"]');
+                            $field.addClass('is-invalid');
+                            $field.closest('.form-group').append('<div class="invalid-feedback d-block">' + messages[0] + '</div>');
+                        });
+                        return;
+                    }
+
+                    $.notify({ icon: 'error', message: 'Az ügyfél mentése sikertelen.' }, { type: 'danger', timer: 4000, placement: { from: 'top', align: 'right' } });
+                });
+            });
 
             @foreach($consignment_receipt->inventoryItems as $item)
                 $('#lightgallery_cri_images_{{ $item->inventory_id }}').hide();
@@ -1340,40 +1629,6 @@
                 });
             });
 
-            $('.cri_name').select2({
-                theme: 'bootstrap4',
-                tags: true,
-                language: {
-                    inputTooShort: function() {
-                        return 'Kérjük, adjon meg 2 vagy több karaktert';
-                    }
-                },
-                ajax: {
-                    url: '/ajax/get_all_product',
-                    dataType: 'json',
-                    delay: 250,
-                    data: function(params) {
-                        return {
-                            term: params.term
-                        };
-                    },
-                    processResults: function(data) {
-                        return {
-                            results: $.map(data, function(product) {
-                                return {
-                                    id: product.product_id,
-                                    text: product.name
-                                };
-                            })
-                        };
-                    },
-                    cache: true
-                },
-                minimumInputLength: 2,
-                placeholder: 'Termékek'
-            });
-
-
             function applyExistingCustomerData(resp) {
                 var o = (typeof resp === 'string') ? JSON.parse(resp) : resp;
 
@@ -1403,6 +1658,7 @@
                     ? (o.customer.tax_number || o.customer.tax_identity || '')
                     : (o.customer.tax_identity || o.customer.tax_number || o.customer.identity_card_number || '');
                 $('input[name=customer_tax_identifier]').val(customerTaxIdentifier);
+
             }
 
             function resetNewCustomerFields() {
@@ -1417,6 +1673,7 @@
                 $('select[name=customer_city]').prop('disabled', false);
                 $('input[name=customer_address]').prop('disabled', false);
                 $('input[name=customer_tax_identifier]').prop('disabled', false);
+
             }
 
             let customerRequestInFlight = null;
@@ -1470,95 +1727,163 @@
             // Egyetlen eseményút: a select2 is kiváltja a change eseményt.
             $(document).on('change', 'select[name=customer_id]', handleCustomerSelection);
 
-            function isNumeric(n) {
-                return !isNaN(parseFloat(n)) && isFinite(n);
+            function rowHasCriData($row) {
+                const value = function(selector) {
+                    return ($row.find(selector).val() || '').toString().trim();
+                };
+                const numberValue = function(selector) {
+                    const raw = value(selector);
+                    if (raw === '') {
+                        return 0;
+                    }
+                    const parsed = parseFloat(raw);
+                    return isNaN(parsed) ? 0 : parsed;
+                };
+
+                return !!(
+                    value('.cri_termek_tipus_id') ||
+                    value('.cri_description') ||
+                    numberValue('.cri_oneprice') > 0 ||
+                    numberValue('.cri_weight') > 0 ||
+                    value('.cri_factory_number') ||
+                    value('.cri_category_id') ||
+                    numberValue('.cri_beszerzesi_ar') > 0 ||
+                    numberValue('.cri_eladasi_ar') > 0 ||
+                    value('.cri_vat_type') ||
+                    value('.cri_karat_id') ||
+                    value('.cri_size') ||
+                    value('.cri_category2_id')
+                );
             }
 
-
-            $(document).on('change', '.cri_name', function() {
-
-                let cri_name = $(this).val();
-                let sei = $(this);
-
-                if (isNumeric(cri_name)) {
-                    cri_name = parseInt(cri_name);
-                    //ajax lekérdezés
-                    $.ajax({
-                        method: "POST",
-                        url: "/ajax/get_one_product_by_id",
-                        data: { product_id: cri_name }
-                    }).done(function( resp ) {
-                        if(resp.is_unique == 1){
-                            sei.parents('.orange_bg').find('.cri_is_unique').prop('checked', true).prop('disabled', true);
-                        } else {
-                            sei.parents('.orange_bg').find('.cri_is_unique').prop('checked', false).prop('disabled', true);
-                        }
-                        sei.parents('.orange_bg').find('.cri_description').val(resp.description);
-                    });
-                }else{
-                    sei.parents('.orange_bg').find('.cri_is_unique').prop('checked', true).prop('disabled', false);
-                    sei.parents('.orange_bg').find('.cri_description').val('');
+            function appendNewEmptyCriRowFrom($sourceRow) {
+                if (!$sourceRow.hasClass('cri_empty_row') || !rowHasCriData($sourceRow)) {
+                    return;
                 }
 
-                if($(this).val().length && $(this).parents('.orange_bg').hasClass('cri_empty_row')){
-                    $(this).parents('.orange_bg').removeClass('cri_empty_row').addClass('cri_item_wrapper');
+                $sourceRow.removeClass('cri_empty_row').addClass('cri_item_wrapper');
 
-                    var $newRow = $(this).parents('.cri_item_wrapper').clone();
-                    $newRow.removeClass('cri_item_wrapper').addClass('cri_empty_row');
-                    $newRow.find('.cri_id, .inventory_id').val('');
-                    $newRow.find('input[type=text], input[type=number]').not('.cri_quantity').val('');
-                    $newRow.find('.cri_quantity').val(1);
-                    $newRow.find('.cri_price').val('');
-                    $newRow.find('.cri_is_unique').prop('checked', true).prop('disabled', false);
-                    $newRow.find('.cri_hallmarks').prop('checked', false);
-                    $newRow.find('select').each(function() {
-                        $(this).val('');
-                    });
+                var $newRow = $sourceRow.clone();
+                $newRow.removeClass('cri_item_wrapper').addClass('cri_empty_row');
 
-                    $('.consignment_receipt_items_rows').append('<hr>');
-                    $('.consignment_receipt_items_rows').append($newRow);
-                    $('.cri_name').select2({
-                        theme: 'bootstrap4',
-                        tags: true,
-                        language: {
-                            inputTooShort: function() {
-                                return 'Kérjük, adjon meg 2 vagy több karaktert';
-                            }
-                        },
-                        ajax: {
-                            url: '/ajax/get_all_product',
-                            dataType: 'json',
-                            delay: 250,
-                            data: function(params) {
-                                return {
-                                    term: params.term
-                                };
-                            },
-                            processResults: function(data) {
-                                return {
-                                    results: $.map(data, function(product) {
-                                        return {
-                                            id: product.product_id,
-                                            text: product.name
-                                        };
-                                    })
-                                };
-                            },
-                            cache: true
-                        },
-                        minimumInputLength: 2,
-                        placeholder: 'Termékek'
-                    });
-
-                    if ($.fn.selectpicker) {
-                        $('.consignment_receipt_items_rows .selectpicker').selectpicker('refresh');
+                // A klónozott bootstrap-select wrapper eltávolítása, hogy ne duplázódjon a vezérlő.
+                $newRow.find('select.selectpicker').each(function() {
+                    var $select = $(this);
+                    if ($select.parent().hasClass('bootstrap-select')) {
+                        var $wrapper = $select.parent();
+                        $wrapper.after($select);
+                        $wrapper.remove();
                     }
+                    $select.removeClass('bs-select-hidden').css('display', '');
+                });
 
-                } else if(!$(this).val() && $('.cri_empty_row').length < 1) {
-                    $(this).parents('.orange_bg').addClass('cri_empty_row');
+                $newRow.find('.cri_id, .inventory_id').val('');
+                $newRow.find('input[type=text], input[type=number]').not('.cri_quantity').val('');
+                $newRow.find('.cri_quantity').val(1);
+                $newRow.find('.cri_price').val('');
+                $newRow.find('.cri_is_unique').prop('checked', true).prop('disabled', false);
+                $newRow.find('.cri_hallmarks').prop('checked', false);
+                $newRow.find('.cri_sell_elsewhere, .cri_webshop').prop('checked', false);
+                $newRow.find('select').each(function() {
+                    $(this).val('');
+                });
+                $newRow.find('.cri_consignment_status').val($('#consignment_status').val());
+                $newRow.find('#cri_hallmarks_new').removeAttr('id');
+
+                $('.consignment_receipt_items_rows').append('<hr>');
+                $('.consignment_receipt_items_rows').append($newRow);
+
+                if ($.fn.selectpicker) {
+                    $newRow.find('select.selectpicker').selectpicker();
+                    $newRow.find('select.selectpicker').selectpicker('refresh');
+                }
+            }
+
+            $(document).on('input change', '.consignment_receipt_items_rows .cri_empty_row input, .consignment_receipt_items_rows .cri_empty_row select', function() {
+                appendNewEmptyCriRowFrom($(this).closest('.orange_bg'));
+            });
+
+            $('#consignment_status').on('change', function() {
+                const $newItemStatus = $('.consignment_receipt_items_rows .cri_empty_row .cri_consignment_status');
+                $newItemStatus.val($(this).val());
+                if ($.fn.selectpicker) {
+                    $newItemStatus.selectpicker('refresh');
+                }
+            });
+
+            function buildCriDataFromRow($row, print) {
+                const storageId = $('select[name=storage_id]').val();
+                const inventoryId = $row.find('.inventory_id').val();
+                const description = $row.find('.cri_description').val();
+                const quantity = $row.find('.cri_quantity').val();
+                const onePrice = $row.find('.cri_oneprice').val();
+                const weight = $row.find('.cri_weight').val();
+                const factoryNumber = $row.find('.cri_factory_number').val();
+
+                const criData = {
+                    print: !!print,
+                    consignment_receipt_id: '{{ $consignment_receipt->consignment_receipt_id }}',
+                    inventory_id: inventoryId,
+                    cri_is_unique: $row.find('.cri_is_unique').is(':checked'),
+                    cri_description: description,
+                    cri_quantity: quantity,
+                    cri_oneprice: onePrice,
+                    cri_price: $row.find('.cri_price').val(),
+                    cri_factory_number: factoryNumber,
+                    cri_weight: weight,
+                    new_sell_elsewhere: $row.find('.cri_sell_elsewhere').is(':checked') ? 1 : 0,
+                    new_webshop: $row.find('.cri_webshop').is(':checked') ? 1 : 0,
+                    storage_id: storageId,
+                    new_category_id: getRowOrHeaderValue($row, '.cri_category_id', 'select[name=category_id]'),
+                    new_beszerzesi_ar: getRowOrHeaderValue($row, '.cri_beszerzesi_ar', 'input[name=beszerzesi_ar]'),
+                    new_eladasi_ar: getRowOrHeaderValue($row, '.cri_eladasi_ar', 'input[name=eladasi_ar]'),
+                    new_vat_type: getRowOrHeaderValue($row, '.cri_vat_type', 'select[name=vat_type]'),
+                    new_hallmarks: $row.find('.cri_hallmarks').is(':checked') ? 1 : $('input[name=hallmarks]').is(':checked') ? 1 : 0,
+                    new_karat_id: getRowOrHeaderValue($row, '.cri_karat_id', 'select[name=karat_id]'),
+                    new_size: getRowOrHeaderValue($row, '.cri_size', 'input[name=size]'),
+                    new_label_type: getRowOrHeaderValue($row, '.cri_label_type', 'select[name=label_type_default]'),
+                    new_category2_id: getRowOrHeaderValue($row, '.cri_category2_id', 'select[name=category2_id]'),
+                    new_termek_tipus_id: getRowOrHeaderValue($row, '.cri_termek_tipus_id', 'select[name=termek_tipus_id]')
+                };
+
+                criData.new_consignment_status = $row.find('.cri_consignment_status').val() || $('#consignment_status').val();
+
+                const selectedColors = $row.find('.cri_colors').val();
+                if (Array.isArray(selectedColors)) {
+                    criData.new_colors = selectedColors;
+                } else if (selectedColors) {
+                    criData.new_colors = [selectedColors];
                 }
 
+                return criData;
+            }
 
+            $(document).on('click', '.save_cri_item_changes', function() {
+                const inventoryId = $(this).attr('data-inventory_id');
+                const $row = $('.cri_item_wrapper .inventory_id[value="' + inventoryId + '"]').closest('.cri_item_wrapper');
+
+                if (!$row.length) {
+                    $.notify({ icon: "error", message: 'A tételsor nem található.' }, { type: 'danger', timer: 3000, placement: { from: 'top', align: 'right' } });
+                    return;
+                }
+
+                const criData = buildCriDataFromRow($row, false);
+                if (!criData.inventory_id) {
+                    $.notify({ icon: "error", message: 'Csak meglévő tétel menthető ezzel a gombbal.' }, { type: 'warning', timer: 3000, placement: { from: 'top', align: 'right' } });
+                    return;
+                }
+
+                $.ajax({
+                    method: "POST",
+                    url: "/ajax/save_consignment_receipt_item",
+                    data: criData
+                }).done(function(respItem) {
+                    var savedInventoryId = (respItem && respItem.inventory_id) ? respItem.inventory_id : respItem;
+                    $row.find('.inventory_id').val(savedInventoryId);
+                    $.notify({ icon: "done", message: 'A tétel módosítása sikeresen mentve.' }, { type: 'success', timer: 3000, placement: { from: 'top', align: 'right' } });
+                }).fail(function() {
+                    $.notify({ icon: "error", message: 'A tétel mentése sikertelen.' }, { type: 'danger', timer: 4000, placement: { from: 'top', align: 'right' } });
+                });
             });
 
 
@@ -1579,7 +1904,7 @@
                 let customer_is_company = $('#customer_is_company').is(':checked') ? 1 : 0;
                 let tax_identifier = $('input[name=customer_tax_identifier]').val();
 
-                let customer_marking_id = $('select[name=customer_marking_id]').val();
+                let filenumber = $('#filenumber').val();
                 let category_id = $('select[name=category_id]').val();
                 let beszerzesi_ar = $('input[name=beszerzesi_ar]').val();
                 let eladasi_ar = $('input[name=eladasi_ar]').val();
@@ -1590,6 +1915,7 @@
                 let category2_id = $('select[name=category2_id]').val();
                 let size = $('input[name=size]').val();
                 let termek_tipus_id = $('select[name=termek_tipus_id]').val();
+                let consignment_status = $('#consignment_status').val();
 
                 var zip = "";
                 var city = "";
@@ -1619,7 +1945,7 @@
                         is_hallmark_requested: is_hallmark_requested,
                         invoice_number: invoice_number,
                         storage_id: storage_id,
-                        customer_marking_id: customer_marking_id,
+                        filenumber: filenumber,
                         category_id: category_id,
                         beszerzesi_ar: beszerzesi_ar,
                         eladasi_ar: eladasi_ar,
@@ -1629,55 +1955,48 @@
                         label_type_default: label_type_default,
                         category2_id: category2_id,
                         size: size,
-                        termek_tipus_id: termek_tipus_id
+                        termek_tipus_id: termek_tipus_id,
+                        consignment_status: consignment_status
                     }
                 })
                 .done(function(resp) {
+                    if (resp && resp.success === false) {
+                        $.notify({
+                            icon: "error",
+                            message: resp.message || "A mentés sikertelen."
+                        }, {
+                            type: 'danger',
+                            timer: 4000,
+                            placement: { from: 'top', align: 'right' }
+                        });
+                        return;
+                    }
+
                     var consignment_receipt_id = '{{ $consignment_receipt->consignment_receipt_id }}';
                     let storage_id = $('select[name=storage_id]').val();
                     var ajaxRequests = [];
-                    $('.cri_name').each(function() {
-                        if($(this).val()){
-                            var sei = $(this);
-                            var cri_data = {
-                                print: print,
-                                consignment_receipt_id: consignment_receipt_id,
-                                inventory_id: sei.parents('.cri_item_wrapper').find('.inventory_id').val(),
-                                cri_name: sei.val(),
-                                cri_is_unique: sei.parents('.cri_item_wrapper').find('.cri_is_unique').is(':checked'),
-                                cri_description: sei.parents('.cri_item_wrapper').find('.cri_description').val(),
-                                cri_quantity: sei.parents('.cri_item_wrapper').find('.cri_quantity').val(),
-                                cri_oneprice: sei.parents('.cri_item_wrapper').find('.cri_oneprice').val(),
-                                cri_price: sei.parents('.cri_item_wrapper').find('.cri_price').val(),
-                                cri_factory_number: sei.parents('.cri_item_wrapper').find('.cri_factory_number').val(),
-                                cri_weight: sei.parents('.cri_item_wrapper').find('.cri_weight').val(),
-                                storage_id: storage_id,
-                                new_customer_marking_id: getRowOrHeaderValue(sei.parents('.cri_item_wrapper'), '.cri_customer_marking_id', 'select[name=customer_marking_id]'),
-                                new_category_id: getRowOrHeaderValue(sei.parents('.cri_item_wrapper'), '.cri_category_id', 'select[name=category_id]'),
-                                new_beszerzesi_ar: getRowOrHeaderValue(sei.parents('.cri_item_wrapper'), '.cri_beszerzesi_ar', 'input[name=beszerzesi_ar]'),
-                                new_eladasi_ar: getRowOrHeaderValue(sei.parents('.cri_item_wrapper'), '.cri_eladasi_ar', 'input[name=eladasi_ar]'),
-                                new_vat_type: getRowOrHeaderValue(sei.parents('.cri_item_wrapper'), '.cri_vat_type', 'select[name=vat_type]'),
-                                new_hallmarks: sei.parents('.cri_item_wrapper').find('.cri_hallmarks').is(':checked') ? 1 : $('input[name=hallmarks]').is(':checked') ? 1 : 0,
-                                new_karat_id: getRowOrHeaderValue(sei.parents('.cri_item_wrapper'), '.cri_karat_id', 'select[name=karat_id]'),
-                                new_size: getRowOrHeaderValue(sei.parents('.cri_item_wrapper'), '.cri_size', 'input[name=size]'),
-                                new_label_type: getRowOrHeaderValue(sei.parents('.cri_item_wrapper'), '.cri_label_type', 'select[name=label_type_default]'),
-                                new_category2_id: getRowOrHeaderValue(sei.parents('.cri_item_wrapper'), '.cri_category2_id', 'select[name=category2_id]'),
-                                new_termek_tipus_id: getRowOrHeaderValue(sei.parents('.cri_item_wrapper'), '.cri_termek_tipus_id', 'select[name=termek_tipus_id]')
-                            };
+                    $('.consignment_receipt_items_rows .cri_item_wrapper, .consignment_receipt_items_rows .cri_empty_row').each(function() {
+                            var $row = $(this);
+                            var inventoryId = $row.find('.inventory_id').val();
+                            var termekTipusId = $row.find('.cri_termek_tipus_id').val();
+                            var description = $row.find('.cri_description').val();
+                            var quantity = $row.find('.cri_quantity').val();
+                            var onePrice = $row.find('.cri_oneprice').val();
+                            var weight = $row.find('.cri_weight').val();
+                            var factoryNumber = $row.find('.cri_factory_number').val();
 
-                            var selectedStatuses = sei.parents('.cri_item_wrapper').find('.cri_statuses').val();
-                            if (Array.isArray(selectedStatuses) && selectedStatuses.length) {
-                                cri_data.new_statuses = selectedStatuses;
-                            } else if (selectedStatuses) {
-                                cri_data.new_statuses = [selectedStatuses];
-                            }
+                            var hasData = !!(
+                                (termekTipusId && String(termekTipusId).trim() !== '') ||
+                                (description && String(description).trim() !== '') ||
+                                (onePrice && String(onePrice).trim() !== '' && String(onePrice) !== '0') ||
+                                (weight && String(weight).trim() !== '' && String(weight) !== '0') ||
+                                ($row.find('.cri_beszerzesi_ar').val() && String($row.find('.cri_beszerzesi_ar').val()).trim() !== '' && String($row.find('.cri_beszerzesi_ar').val()) !== '0') ||
+                                ($row.find('.cri_eladasi_ar').val() && String($row.find('.cri_eladasi_ar').val()).trim() !== '' && String($row.find('.cri_eladasi_ar').val()) !== '0') ||
+                                (factoryNumber && String(factoryNumber).trim() !== '')
+                            );
 
-                            var selectedColors = sei.parents('.cri_item_wrapper').find('.cri_colors').val();
-                            if (Array.isArray(selectedColors)) {
-                                cri_data.new_colors = selectedColors;
-                            } else if (selectedColors) {
-                                cri_data.new_colors = [selectedColors];
-                            }
+                            if(inventoryId || hasData){
+                            var cri_data = buildCriDataFromRow($row, print);
 
                             console.log(cri_data);
 
@@ -1686,14 +2005,30 @@
                                 url: "/ajax/save_consignment_receipt_item",
                                 data: cri_data
                             }).done(function(respItem) {
-                                sei.parents('.cri_item_wrapper').find('.inventory_id').val(respItem);
+                                var savedInventoryId = (respItem && respItem.inventory_id) ? respItem.inventory_id : respItem;
+                                $row.find('.inventory_id').val(savedInventoryId);
+                                $row.removeClass('cri_empty_row').addClass('cri_item_wrapper');
                             });
 
                             ajaxRequests.push(request);
                         }else{
-                            console.log('Nincs termék kiválasztva, nem mentjük a sort.');
+                            console.log('Üres sor, nem mentjük.');
                         }
                     });
+
+                    if (ajaxRequests.length === 0) {
+                        $.notify({
+                            icon: "done",
+                            message: "A fejléc adatok sikeresen mentve."
+                        }, {
+                            type: 'success',
+                            timer: 3000,
+                            placement: { from: 'top', align: 'right' }
+                        });
+                        if(callback) callback();
+                        location.href = "/consignment_receipt/{{ $consignment_receipt->consignment_receipt_id }}/edit";
+                        return;
+                    }
 
                     $.when.apply($, ajaxRequests).done(function() {
                         $.notify({
@@ -1710,6 +2045,20 @@
 
                         if(callback) callback();
                         location.href = "/consignment_receipt/{{ $consignment_receipt->consignment_receipt_id }}/edit";
+                    });
+                })
+                .fail(function(xhr) {
+                    var message = 'A fejléc mentése sikertelen.';
+                    if (xhr && xhr.responseJSON && xhr.responseJSON.message) {
+                        message = xhr.responseJSON.message;
+                    }
+                    $.notify({
+                        icon: "error",
+                        message: message
+                    }, {
+                        type: 'danger',
+                        timer: 5000,
+                        placement: { from: 'top', align: 'right' }
                     });
                 });
             }

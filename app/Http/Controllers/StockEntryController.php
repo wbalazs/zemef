@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\InventoryStatus;
+use App\Enums\ItemListStatus;
 use App\Models\Customer;
 use App\Models\CustomerMarking;
 use App\Models\CustomerAddress;
@@ -672,6 +673,25 @@ class StockEntryController extends Controller
             $stock_entry->printed_at = now();
             $stock_entry->save();
             session()->flash('print', $stock_entry->stock_entry_id);
+        }
+
+        // Ha ez a tétel egy kényszerlista sorból lett átemelve, a sort most jelöljük "termékké alakítva" státuszra.
+        if ($request->filled('item_list_id') && $request->filled('item_list_sor')) {
+            $itemList = ItemList::find($request->item_list_id);
+            if ($itemList) {
+                $rows = $itemList->json['tetelek'] ?? [];
+                foreach ($rows as $index => $row) {
+                    if ((int) ($row['sor'] ?? -1) === (int) $request->item_list_sor) {
+                        $rows[$index]['status'] = ItemListStatus::PRODUCT->value;
+                        $rows[$index]['stock_entry_id'] = $stock_entry->stock_entry_id;
+                        break;
+                    }
+                }
+                $json = $itemList->json ?? [];
+                $json['tetelek'] = $rows;
+                $itemList->json = $json;
+                $itemList->save();
+            }
         }
 
         return response()->json([

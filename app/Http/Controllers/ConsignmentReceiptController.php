@@ -22,7 +22,7 @@ use App\Models\VatType;
 use App\Models\Currency;
 use App\Models\Karat;
 use App\Models\Category2;
-use App\Models\CustomerMarking;
+use App\Enums\ConsignmentReceiptStatus;
 use App\Enums\InventoryStatus;
 use App\Models\Address\Zip;
 use App\Models\Address\City;
@@ -93,7 +93,6 @@ class ConsignmentReceiptController extends Controller
 
         $hallmarks = Hallmark::where('status', 1)->orderBy('name', 'ASC')->get();
         $product_colors = ProductColor::where('status', 1)->orderBy('name', 'ASC')->get();
-        $product_statuses = ProductStatus::where('status', 1)->orderBy('name', 'ASC')->get();
         $product_signs = ProductSign::where('status', 1)->orderBy('name', 'ASC')->get();
         $product_types = ProductType::where('status', 1)->orderBy('name', 'ASC')->get();
         $products = Product::orderBy('name', 'ASC')->get();
@@ -101,7 +100,6 @@ class ConsignmentReceiptController extends Controller
         $vat_types = VatType::orderBy('name', 'ASC')->get();
         $karats = Karat::where('status', 1)->orderBy('name', 'ASC')->get();
         $category2s = Category2::where('status', 1)->orderBy('name', 'ASC')->get();
-        $customer_markings = collect();
 
         return view('consignment_receipts.edit', [
             'consignment_receipt' => $consignment_receipt,
@@ -110,7 +108,6 @@ class ConsignmentReceiptController extends Controller
             'categories' => $categories,
             'hallmarks' => $hallmarks,
             'product_colors' => $product_colors,
-            'product_statuses' => $product_statuses,
             'product_signs' => $product_signs,
             'product_types' => $product_types,
             'products' => $products,
@@ -118,7 +115,7 @@ class ConsignmentReceiptController extends Controller
             'vat_types' => $vat_types,
             'karats' => $karats,
             'category2s' => $category2s,
-            'customer_markings' => $customer_markings,
+            'consignment_receipt_statuses' => ConsignmentReceiptStatus::options(),
             'inventoryItems' => collect(),
             'currencies' => Currency::where('status', 1)->orderBy('currency_id', 'ASC')->get()
         ]);
@@ -174,7 +171,6 @@ class ConsignmentReceiptController extends Controller
 
         $hallmarks = Hallmark::where('status', 1)->orderBy('name', 'ASC')->get();
         $product_colors = ProductColor::where('status', 1)->orderBy('name', 'ASC')->get();
-        $product_statuses = ProductStatus::where('status', 1)->orderBy('name', 'ASC')->get();
         $product_signs = ProductSign::where('status', 1)->orderBy('name', 'ASC')->get();
         $product_types = ProductType::where('status', 1)->orderBy('name', 'ASC')->get();
         $price_types = UnitPriceType::orderBy('name', 'ASC')->get();
@@ -182,15 +178,6 @@ class ConsignmentReceiptController extends Controller
         $karats = Karat::where('status', 1)->orderBy('name', 'ASC')->get();
         $category2s = Category2::where('status', 1)->orderBy('name', 'ASC')->get();
         $products = Product::orderBy('name', 'ASC')->get();
-
-        $customer_markings = collect();
-        if (!empty($consignment_receipt->customer_id)) {
-            $customer_markings = CustomerMarking::with('productStatus')
-                ->where('customer_id', $consignment_receipt->customer_id)
-                ->where('status', 1)
-                ->orderBy('name', 'ASC')
-                ->get();
-        }
 
         $inventoryItems = Inventory::where('source_type', 'consignment')
             ->where('source_header_id', $consignment_receipt->consignment_receipt_id)
@@ -206,7 +193,7 @@ class ConsignmentReceiptController extends Controller
 
                 // Header fallback, hogy a régi tételek is kompatibilisek maradjanak.
                 $headerData = is_array($consignment_receipt->header_data) ? $consignment_receipt->header_data : [];
-                $fallbackKeys = ['customer_marking_id', 'vzj', 'termek_tipus_id', 'category_id', 'beszerzesi_ar', 'eladasi_ar', 'vat_type_id', 'karat_id', 'label_type', 'category2_id', 'size'];
+                $fallbackKeys = ['termek_tipus_id', 'category_id', 'beszerzesi_ar', 'eladasi_ar', 'vat_type_id', 'karat_id', 'label_type', 'category2_id', 'size'];
                 foreach ($fallbackKeys as $key) {
                     if (!array_key_exists($key, $itemData) || $itemData[$key] === null || $itemData[$key] === '') {
                         if (array_key_exists($key, $headerData)) {
@@ -247,7 +234,6 @@ class ConsignmentReceiptController extends Controller
             'categories' => $categories,
             'hallmarks' => $hallmarks,
             'product_colors' => $product_colors,
-            'product_statuses' => $product_statuses,
             'product_signs' => $product_signs,
             'product_types' => $product_types,
             'warehouse' => $warehouse,
@@ -256,7 +242,7 @@ class ConsignmentReceiptController extends Controller
             'vat_types' => $vat_types,
             'karats' => $karats,
             'category2s' => $category2s,
-            'customer_markings' => $customer_markings,
+            'consignment_receipt_statuses' => ConsignmentReceiptStatus::options(),
             'products' => $products,
             'inventoryItems' => $inventoryItems,
             'show' => false
@@ -320,22 +306,29 @@ class ConsignmentReceiptController extends Controller
 
     public function saveConsignmentReceipt(Request $request)
     {
+        $request->validate([
+            'consignment_status' => ['required', 'integer', 'in:' . implode(',', array_keys(ConsignmentReceiptStatus::options()))],
+        ]);
+
         $consignment_receipt = ConsignmentReceipt::find($request->consignment_receipt_id);
+        if (!$consignment_receipt) {
+            return response()->json(['success' => false, 'message' => 'A bizonylat nem található.'], 404);
+        }
+
         $storage = Warehouse::find($request->storage_id);
         $storage_id = $storage ? $storage->warehouse_id : null;
-
-        if (empty($request->business_id) && $storage && $storage->businesses->first()) {
-            $request->business_id = $storage->businesses->first()->business_id;
+        $businessId = $request->business_id;
+        if (empty($businessId) && $storage && $storage->businesses->first()) {
+            $businessId = $storage->businesses->first()->business_id;
         }
 
         if(!$consignment_receipt->ticket_number || $consignment_receipt->ticket_number == '--empty_row--'){
 
             $serial = $this->getNextSerial();
             // Formátum: XX/EEEE/00001 - ahol XX - bolti azonosító
-            $consignment_receipt->ticket_number = 'BATV/'. $request->business_id . '/' . date('Y') . '/' . sprintf('%05d', $serial);
+            $consignment_receipt->ticket_number = 'BATV/'. $businessId . '/' . date('Y') . '/' . sprintf('%05d', $serial);
         }
 
-        $request->employee_id = Auth::user()->employee?->employee_id;
         $customer_id = $request->customer_id;
         $customerIsCompany = filter_var($request->input('customer_is_company', 0), FILTER_VALIDATE_BOOLEAN);
 
@@ -359,12 +352,17 @@ class ConsignmentReceiptController extends Controller
             $customer->status = 1;
             $customer->save();
 
+            $zipName = $zip ? $zip->name : null;
+            $zipDbId = $zip ? $zip->id : null;
+            $cityName = $city ? $city->name : null;
+            $cityDbId = $city ? $city->id : null;
+
             $customer_address = new CustomerAddress();
             $customer_address->address_type = "Lakcím";
-            $customer_address->zip = $zip->name;
-            $customer_address->zip_id = $zip->id;
-            $customer_address->city = $city->name;
-            $customer_address->city_id = $city->id;
+            $customer_address->zip = $zipName;
+            $customer_address->zip_id = $zipDbId;
+            $customer_address->city = $cityName;
+            $customer_address->city_id = $cityDbId;
             $customer_address->address = $request->address;
             $customer_address->customer_id = $customer->customer_id;
             $customer_address->save();
@@ -377,16 +375,18 @@ class ConsignmentReceiptController extends Controller
             if (!$customer_address) {
                 $zip = Zip::where('id', $request->zip)->first();
                 $city = City::where('id', $request->city)->first();
-                
-                $customer_address = new CustomerAddress();
-                $customer_address->address_type = "Lakcím";
-                $customer_address->zip = $zip->name;
-                $customer_address->zip_id = $zip->id;
-                $customer_address->city = $city->name;
-                $customer_address->city_id = $city->id;
-                $customer_address->address = $request->address;
-                $customer_address->customer_id = $customer->customer_id;
-                $customer_address->save();
+
+                if ($zip || $city || $request->address) {
+                    $customer_address = new CustomerAddress();
+                    $customer_address->address_type = "Lakcím";
+                    $customer_address->zip = $zip ? $zip->name : null;
+                    $customer_address->zip_id = $zip ? $zip->id : null;
+                    $customer_address->city = $city ? $city->name : null;
+                    $customer_address->city_id = $city ? $city->id : null;
+                    $customer_address->address = $request->address;
+                    $customer_address->customer_id = $customer->customer_id;
+                    $customer_address->save();
+                }
             }
 
             $customer->is_company = $customerIsCompany ? 1 : 0;
@@ -394,13 +394,6 @@ class ConsignmentReceiptController extends Controller
             $customer->tax_number = $customerIsCompany ? $taxIdentifier : null;
             $customer->identity_card_number = null;
             $customer->save();
-        }
-
-        $selectedCustomerMarking = null;
-        if ($request->filled('customer_marking_id') && is_numeric($request->customer_marking_id) && is_numeric($customer_id)) {
-            $selectedCustomerMarking = CustomerMarking::where('id', $request->customer_marking_id)
-                ->where('customer_id', $customer_id)
-                ->first();
         }
 
         $headerTermekTipusId = $request->input(
@@ -412,9 +405,8 @@ class ConsignmentReceiptController extends Controller
             'customer_is_company' => $customerIsCompany ? 1 : 0,
             'tax_identifier_label' => $customerIsCompany ? 'Adószám' : 'Adóazonosító',
             'tax_identifier' => $taxIdentifier,
-            'customer_marking_id' => $selectedCustomerMarking?->id,
-            'vzj' => $selectedCustomerMarking?->name,
-            'product_status_id' => $selectedCustomerMarking?->product_status_id,
+            'filenumber' => $request->input('filenumber'),
+            'consignment_status' => (int) $request->input('consignment_status'),
             'termek_tipus_id' => $headerTermekTipusId,
             'category_id' => $request->category_id,
             'beszerzesi_ar' => $request->beszerzesi_ar,
@@ -428,17 +420,16 @@ class ConsignmentReceiptController extends Controller
         ];
 
         $consignment_receipt->update(
-            array_merge($request->all(),
-                ['employee_id' => Auth::user()->employee?->employee_id,
+            [
+                'employee_id' => Auth::user()->employee?->employee_id,
                 'customer_id' => $customer_id,
                 'currency_id' => $request->currency_id,
-                'business_id' => $request->business_id,
+                'business_id' => $businessId,
                 'currency_value' => $request->currency_value,
                 'is_hallmark_requested' => $request->is_hallmark_requested,
                 'expire_date' => $request->expire_date,
                 'storage_id' => $storage_id,
-                ]
-            )
+            ]
         );
 
         $consignment_receipt->header_data = $headerData;
@@ -446,11 +437,18 @@ class ConsignmentReceiptController extends Controller
 
         
 
-        return true;
+        return response()->json([
+            'success' => true,
+            'consignment_receipt_id' => $consignment_receipt->consignment_receipt_id,
+        ]);
     }
 
     public function saveConsignmentReceiptItem(Request $request)
     {
+        $request->validate([
+            'new_consignment_status' => ['required', 'integer', 'in:' . implode(',', array_keys(ConsignmentReceiptStatus::options()))],
+        ]);
+
         $consignment_receipt = ConsignmentReceipt::findOrFail($request->consignment_receipt_id);
 
         $rawTermekTipusId = $request->input('new_termek_tipus_id', $request->input('termek_tipus_id'));
@@ -460,33 +458,21 @@ class ConsignmentReceiptController extends Controller
         $termekTipusId = ($rawTermekTipusId === null || $rawTermekTipusId === '') ? null : (int) $rawTermekTipusId;
         $inventoryName = $termekTipusId ? (ProductType::find($termekTipusId)?->name ?? null) : null;
 
-        $selectedCustomerMarking = null;
-        $selectedCustomerMarkingId = $request->input('new_customer_marking_id', $request->input('customer_marking_id'));
-        if ($selectedCustomerMarkingId && is_numeric($selectedCustomerMarkingId) && is_numeric($consignment_receipt->customer_id)) {
-            $selectedCustomerMarking = CustomerMarking::where('id', $selectedCustomerMarkingId)
-                ->where('customer_id', $consignment_receipt->customer_id)
-                ->first();
-        }
-
-        $selectedStatuses = $request->input('new_statuses', $request->input('statuses', []));
-        if (!is_array($selectedStatuses)) {
-            $selectedStatuses = $selectedStatuses !== null && $selectedStatuses !== '' ? [(int) $selectedStatuses] : [];
-        }
         $selectedColors = $request->input('new_colors', $request->input('colors', []));
         if (!is_array($selectedColors)) {
             $selectedColors = $selectedColors !== null && $selectedColors !== '' ? [(int) $selectedColors] : [];
         }
 
         $itemData = [
-            'customer_marking_id' => $selectedCustomerMarking?->id,
-            'vzj' => $selectedCustomerMarking?->name,
             'termek_tipus_id' => $termekTipusId,
             'category_id' => $request->input('new_category_id', $request->input('category_id')),
             'beszerzesi_ar' => $request->input('new_beszerzesi_ar', $request->cri_oneprice),
             'eladasi_ar' => $request->input('new_eladasi_ar', $request->cri_price),
             'vat_type_id' => $request->input('new_vat_type', $request->input('vat_type_id')),
             'hallmarks' => filter_var($request->input('new_hallmarks', $request->input('hallmarks', 0)), FILTER_VALIDATE_BOOLEAN) ? 1 : 0,
-            'statuses' => $selectedStatuses,
+            'sell_elsewhere' => filter_var($request->input('new_sell_elsewhere', 0), FILTER_VALIDATE_BOOLEAN) ? 1 : 0,
+            'webshop' => filter_var($request->input('new_webshop', 0), FILTER_VALIDATE_BOOLEAN) ? 1 : 0,
+            'consignment_status' => (int) $request->input('new_consignment_status'),
             'karat_id' => $request->input('new_karat_id', $request->input('karat_id')),
             'colors' => $selectedColors,
             'size' => $request->input('new_size', $request->input('size')),
@@ -533,12 +519,20 @@ class ConsignmentReceiptController extends Controller
             $oneprice = (int) $request->cri_oneprice;
             $weight = $request->cri_weight ?: 0;
 
-            // Terméktípus előkészítése (Product)
+            // Megnevezés opcionális: ha nincs, stock_entry mintára fix product_id-t használunk.
+            $defaultProductId = 1;
+            $productId = $defaultProductId;
+            $productName = $inventoryName ?: ($request->cri_name ?: 'Tétel');
+
             if (is_numeric($request->cri_name)) {
-                $product = Product::findOrFail($request->cri_name);
-            } else {
+                $product = Product::find($request->cri_name);
+                if ($product) {
+                    $productId = $product->product_id;
+                    $productName = $product->name ?: $productName;
+                }
+            } elseif (!empty($request->cri_name)) {
                 $product = new Product();
-                $product->name = $inventoryName ?: $request->cri_name;
+                $product->name = $productName;
                 $product->short_description = $request->cri_description;
                 $product->status = 3; // Feldolgozás alatt
                 $product->weight = 0;
@@ -557,6 +551,8 @@ class ConsignmentReceiptController extends Controller
 
                 $productSignIds = ProductSign::where('status', 1)?->pluck('product_sign_id');
                 $product->product_signs()->syncWithoutDetaching($productSignIds);
+
+                $productId = $product->product_id;
             }
 
             // Inventory tételek létrehozása
@@ -565,9 +561,9 @@ class ConsignmentReceiptController extends Controller
                 // Egyedi tételek: minden darabhoz külön inventory rekord
                 for ($i = 0; $i < $quantity; $i++) {
                     $inventory = new Inventory();
-                    $inventory->product_id = $product->product_id;
-                    $inventory->code = $inventory->generateInventoryCode($termekTipusId ?: $product->product_id); // új
-                    $inventory->name = $inventoryName ?: $product->name;
+                    $inventory->product_id = $productId;
+                    $inventory->code = $inventory->generateInventoryCode($termekTipusId ?: $productId); // új
+                    $inventory->name = $productName;
                     $inventory->description = $request->cri_description;
                     $inventory->factory_number = $request->cri_factory_number;
                     $inventory->weight = $weight;
@@ -589,9 +585,9 @@ class ConsignmentReceiptController extends Controller
             } else {
                 // Nem egyedi: egy inventory rekord a teljes mennyiséggel
                 $inventory = new Inventory();
-                $inventory->product_id = $product->product_id;
-                $inventory->code = $inventory->generateInventoryCode($termekTipusId ?: $product->product_id); // új
-                $inventory->name = $inventoryName ?: $request->cri_name;
+                $inventory->product_id = $productId;
+                $inventory->code = $inventory->generateInventoryCode($termekTipusId ?: $productId); // új
+                $inventory->name = $productName;
                 $inventory->description = $request->cri_description;
                 $inventory->factory_number = $request->cri_factory_number;
                 $inventory->weight = $weight;
