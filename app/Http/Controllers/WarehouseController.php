@@ -62,8 +62,15 @@ class WarehouseController extends Controller
      */
     public function store(WarehouseRequest $request, Warehouse $model)
     {
-        $warehouse = $model->create($request->merge([
-        ])->all());
+        DB::transaction(function () use ($request, $model) {
+            $warehouse = $model->create(array_merge($request->all(), [
+                'is_broken_gold' => $request->boolean('is_broken_gold') ? 1 : 0,
+            ]));
+
+            if ($request->boolean('is_broken_gold')) {
+                $this->clearOtherBrokenGoldWarehouses($warehouse->warehouse_id);
+            }
+        });
 
         return redirect()->route('warehouse.index')->withStatus(['A raktár sikeresen létrehozva.']);
     }
@@ -96,21 +103,27 @@ class WarehouseController extends Controller
      */
     public function update(WarehouseRequest $request, Warehouse $warehouse)
     {
-        $warehouse->update(
-            array_merge($request->all(),
-                ['status' => $request->status, 
-                'is_central' => $request->is_central, 
-                'is_receiving' => $request->is_receiving, 
-                'is_store' => $request->is_store, 
-                'is_goldsmith' => $request->is_goldsmith, 
-                'is_fake' => $request->is_fake, 
-                'is_hallmark' => $request->is_hallmark,
-                'is_broken_gold' => $request->is_broken_gold,
-                'is_broken_silver' => $request->is_broken_silver,
-                'is_repair' => $request->is_repair, 
-                ]
-            )
-        );
+        DB::transaction(function () use ($request, $warehouse) {
+            $warehouse->update(
+                array_merge($request->all(),
+                    ['status' => $request->status,
+                    'is_central' => $request->is_central,
+                    'is_receiving' => $request->is_receiving,
+                    'is_store' => $request->is_store,
+                    'is_goldsmith' => $request->is_goldsmith,
+                    'is_fake' => $request->is_fake,
+                    'is_hallmark' => $request->is_hallmark,
+                    'is_broken_gold' => $request->boolean('is_broken_gold') ? 1 : 0,
+                    'is_broken_silver' => $request->is_broken_silver,
+                    'is_repair' => $request->is_repair,
+                    ]
+                )
+            );
+
+            if ($request->boolean('is_broken_gold')) {
+                $this->clearOtherBrokenGoldWarehouses($warehouse->warehouse_id);
+            }
+        });
 
         return redirect()->route('warehouse.index')->withMessage(['A raktár sikeresen mentve.']);
     }
@@ -151,6 +164,13 @@ class WarehouseController extends Controller
         $exists = $existsInWarehouseTransfer || $existsInDeliveryNote || $existsInPurchaseTicket;
 
         return $exists;
+    }
+
+    private function clearOtherBrokenGoldWarehouses(int $warehouseId): void
+    {
+        Warehouse::where('is_broken_gold', 1)
+            ->where('warehouse_id', '!=', $warehouseId)
+            ->update(['is_broken_gold' => 0]);
     }
 
 

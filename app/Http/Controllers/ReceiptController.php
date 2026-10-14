@@ -271,6 +271,7 @@ class ReceiptController extends Controller
         }
 
         $data['consignment_receipt'] = $consignment_receipt;
+        $data['business'] = $consignment_receipt->business;
 
         $pdf->setOptions(['defaultFont' => 'sans-serif', 'isRemoteEnabled' => TRUE]);
         $pdf->loadView('pdf.consignment_receipt', ['data' => $data]);

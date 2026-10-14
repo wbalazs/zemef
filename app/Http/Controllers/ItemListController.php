@@ -8,6 +8,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use App\Models\Business;
+use App\Models\BusinessAlias;
+use App\Models\BusinessMarking;
+use App\Models\Customer;
+use App\Models\CustomerAddress;
 use App\Services\ItemList\ItemListImport;
 use App\Models\ItemList\ItemList;
 use App\Models\ItemListItem\ItemListItem;
@@ -17,6 +21,14 @@ use App\Models\StockEntry;
 use App\Models\Currency;
 use App\Models\Karat;
 use App\Models\VatType;
+use App\Category;
+use App\Models\Category2;
+use App\Models\ProductStatus;
+use App\Models\ProductType;
+use App\Models\ProductColor;
+use App\Models\ProductSign;
+use App\Models\UnitPriceType;
+use App\Models\CustomerMarking;
 use App\Enums\InventoryStatus;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
@@ -591,10 +603,21 @@ class ItemListController extends Controller
 
         $tetel = $rows[$rowIndex];
 
+        $customer = $this->resolveTransferCustomer($tetel['ugyfel'] ?? []);
+
         $header = $itemList->json['header'] ?? [];
         $businessName = $header['atvevo_bolt']['nev'] ?? null;
-        $business = $businessName ? Business::where('name', $businessName)->first() : null;
-        $storage = $business?->warehouses()->orderBy('warehouse_id')->first();
+        $businessAlias = $businessName
+            ? BusinessAlias::with('business', 'warehouse')->where('name', $businessName)->where('aktiv', 1)->first()
+            : null;
+
+        if ($businessAlias) {
+            $business = $businessAlias->business;
+            $storage = $businessAlias->warehouse ?? $business?->warehouses()->orderBy('warehouse_id')->first();
+        } else {
+            $business = $businessName ? Business::where('name', $businessName)->first() : null;
+            $storage = $business?->warehouses()->orderBy('warehouse_id')->first();
+        }
 
         $karatValue = $tetel['karat'] ?? $tetel['karat_finomsag'] ?? null;
         $karat = $karatValue ? Karat::where('name', $karatValue)->first() : null;
@@ -604,25 +627,55 @@ class ItemListController extends Controller
 
         $beszerzesiAr = $tetel['atveteli_ar'] ?? null;
 
+        $defaultBusinessMarking = null;
+        if ($business) {
+            $defaultBusinessMarking = BusinessMarking::with('productStatus.vatType')
+                ->where('business_id', $business->business_id)
+                ->where('status', 1)
+                ->orderByDesc('default')
+                ->first();
+        }
+
+        $markingPrice = optional($defaultBusinessMarking?->productStatus)->price;
+        $markingVatTypeId = optional($defaultBusinessMarking?->productStatus)->vat_type_id;
+
+        $atadasNapjaRaw = $header['atadas_napja'] ?? $header['atadas_datuma'] ?? null;
+        $fulfillmentDate = now()->toDateString();
+        if ($atadasNapjaRaw) {
+            try {
+                $cleanedDate = trim(str_replace(['.', '/', ' '], ['-', '-', ''], rtrim($atadasNapjaRaw, '. ')));
+                $fulfillmentDate = \Carbon\Carbon::parse($cleanedDate)->toDateString();
+            } catch (\Throwable $e) {
+                $fulfillmentDate = now()->toDateString();
+            }
+        }
+
+        $bizonylatSzama1 = $header['bizonylat_szama_1'] ?? $header['bizonylatszam_1'] ?? $header['bizonylatszam'] ?? $header['bizonylat_szama'] ?? '';
+        $zalogjegySzama = $tetel['zalogjegy_szama'] ?? '';
+
         // Ha már korábban megnyitottuk ezt a tételt, a meglévő (még üres) bizonylatot használjuk újra, hogy ne halmozzódjanak a fejek.
         $stock_entry = !empty($tetel['stock_entry_id']) ? StockEntry::find($tetel['stock_entry_id']) : null;
 
         if (!$stock_entry) {
             $stock_entry = StockEntry::create([
-                // sorszám a tetel zálogjegy száma, státusz 1: így a tétel felvitel rögtön megjelenik
-                'ticket_number' => $tetel['zalogjegy_szama'] ?? '--empty_row--',
-                'status' => 1,
+                // sorszám a tetel zálogjegy száma, státusz 0 (Nyitott)
+                'ticket_number' => $zalogjegySzama ?: '--empty_row--',
+                'status' => 0,
                 'business_id' => $business?->business_id,
                 'storage_id' => $storage?->warehouse_id,
+                'customer_id' => $customer?->customer_id,
                 'currency_id' => $currency?->currency_id,
                 'currency_value' => 1.00,
-                'fulfillment_date' => now()->toDateString(),
+                'fulfillment_date' => $fulfillmentDate,
+                'contract_number' => $bizonylatSzama1 ?: null,
+                'invoice_number' => $zalogjegySzama ?: null,
+                'has_contract' => 1,
                 'header_data' => [
-                    'customer_marking_id' => null,
+                    'customer_marking_id' => $defaultBusinessMarking?->id,
                     'category_id' => null,
                     'beszerzesi_ar' => $beszerzesiAr,
-                    'eladasi_ar' => null,
-                    'vat_type_id' => $vatType?->vat_type_id,
+                    'eladasi_ar' => $markingPrice,
+                    'vat_type_id' => $markingVatTypeId ?? $vatType?->vat_type_id,
                     'hallmarks' => 0,
                     'karat_id' => $karat?->karat_id,
                     'label_type' => null,
@@ -636,34 +689,167 @@ class ItemListController extends Controller
             $json['tetelek'] = $rows;
             $itemList->json = $json;
             $itemList->save();
+        } else {
+            if ($customer && (int) $stock_entry->customer_id !== (int) $customer->customer_id) {
+                $stock_entry->customer_id = $customer->customer_id;
+            }
+            if ($bizonylatSzama1 && empty($stock_entry->contract_number)) {
+                $stock_entry->contract_number = $bizonylatSzama1;
+            }
+            if ($zalogjegySzama && empty($stock_entry->invoice_number)) {
+                $stock_entry->invoice_number = $zalogjegySzama;
+            }
+            if ($fulfillmentDate && $stock_entry->fulfillment_date !== $fulfillmentDate) {
+                $stock_entry->fulfillment_date = $fulfillmentDate;
+            }
+            if ($business && !$stock_entry->printed_at) {
+                $stock_entry->business_id = $business->business_id;
+                if ($storage) {
+                    $stock_entry->storage_id = $storage->warehouse_id;
+                }
+            }
+            $stock_entry->save();
         }
 
         // Az "új tétel" űrlap alapértelmezett értékei - még nem kerül semmi az adatbázisba, csak a felhasználó jóváhagyása után (save_new_item_btn).
+        $prefillWeight = (float) ($tetel['netto_suly'] ?? ($tetel['brutto_suly'] ?? 0));
+        $prefillOnePrice = ($prefillWeight > 0 && (float) $beszerzesiAr > 0)
+            ? (float) $beszerzesiAr / $prefillWeight
+            : ($tetel['atlag_beszerzesi_grammar'] ?? $beszerzesiAr);
+        if (is_numeric($prefillOnePrice)) {
+            $prefillOnePrice = round((float) $prefillOnePrice);
+        }
+
         $prefill = [
             'item_list_id' => $itemList->id,
             'item_list_sor' => $sor,
-            'description' => $tetel['targyleiras'] ?? '',
+            //'description' => $tetel['targyleiras'] ?? '',
             'weight' => $tetel['netto_suly'] ?? ($tetel['brutto_suly'] ?? ''),
             'quantity' => 1,
-            'oneprice' => $beszerzesiAr,
+            'oneprice' => $prefillOnePrice,
             'price' => $beszerzesiAr,
-            'factory_number' => $header['listazas_azonosito'] ?? ($tetel['zalogjegy_szama'] ?? ''),
+            'factory_number' => '',
         ];
 
-        return $this->renderTransferView($stock_entry, $itemList, $prefill);
+        return $this->renderTransferView($stock_entry, $itemList, $tetel, $sor, $prefill);
+    }
+
+    private function resolveTransferCustomer(array $customerData): ?Customer
+    {
+        $name = trim((string) ($customerData['nev'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
+
+        $customer = Customer::where('name', $name)->first();
+        if (!$customer) {
+            $customer = Customer::create([
+                'name' => $name,
+                'status' => 1,
+            ]);
+        }
+
+        $address = $customer->addresses()->where('address_type', 'Lakcím')->first();
+        if (!$address) {
+            CustomerAddress::create([
+                'customer_id' => $customer->customer_id,
+                'address_type' => 'Lakcím',
+                'zip' => $customerData['iranyitoszam'] ?? null,
+                'city' => $customerData['telepules'] ?? null,
+                'address' => $customerData['cim'] ?? null,
+            ]);
+        }
+
+        return $customer;
     }
 
     /**
-     * Az ékszer vásárlás szerkesztő nézetének megjelenítése a kényszerlista almenlye alatt (nincs átirányítás a stock_entry névérre).
+     * Kényszerlista tétel átemelésének dedikált nézete.
      */
-    private function renderTransferView(StockEntry $stock_entry, ItemList $itemList, array $prefill = [])
+    private function renderTransferView(StockEntry $stock_entry, ItemList $itemList, array $tetel, int $sor, array $prefill = [])
     {
-        $view = app(StockEntryController::class)->edit($stock_entry);
+        $customers = Customer::where('status', 1)->orderBy('name', 'ASC')->get();
+        $businesses = Business::where('status', 1)
+            ->whereIn('business_id', auth()->user()->employee?->businesses?->pluck('business_id')->toArray() ?? [])
+            ->orderBy('name', 'ASC')
+            ->get();
 
-        return $view->with([
-            'backRoute' => route('item_list.subindex', $itemList->id),
-            'backLabel' => 'Vissza a kényszerlistához',
+        if ($businesses->isEmpty()) {
+            $businesses = Business::where('status', 1)->orderBy('name', 'ASC')->get();
+        }
+
+        $categoryController = app(CategoryController::class);
+        $categories = Category::where('status', 1)->whereNull('parent_id')->orderBy('name', 'ASC')->get();
+        $categories = $categories->map(function ($category) use ($categoryController) {
+            $category->depth = 0;
+            return $categoryController->setCategoryDepth($category);
+        });
+
+        $storageId = $stock_entry->storage_id;
+        $warehouse = Warehouse::find($storageId);
+
+        $product_colors = ProductColor::where('status', 1)->orderBy('name', 'ASC')->get();
+        $product_statuses = ProductStatus::where('status', 1)->orderBy('name', 'ASC')->get();
+        $product_types = ProductType::where('status', 1)->orderBy('name', 'ASC')->get();
+        $product_signs = ProductSign::where('status', 1)->orderBy('name', 'ASC')->get();
+        $price_types = UnitPriceType::orderBy('name', 'ASC')->get();
+        $vat_types = VatType::orderBy('name', 'ASC')->get();
+        $karats = Karat::where('status', 1)->orderBy('name', 'ASC')->get();
+        $category2s = Category2::where('status', 1)->orderBy('name', 'ASC')->get();
+        $business_markings = collect();
+        if (!empty($stock_entry->business_id)) {
+            $business_markings = BusinessMarking::with('productStatus.vatType')
+                ->where('business_id', $stock_entry->business_id)
+                ->where('status', 1)
+                ->orderByDesc('default')
+                ->orderBy('name', 'ASC')
+                ->get();
+        }
+
+        $inventoryItems = Inventory::where('source_type', 'stock_entry')
+            ->where('source_header_id', $stock_entry->stock_entry_id)
+            ->get();
+
+        $inventoryItems = $inventoryItems->map(function ($item) {
+            $itemData = $item->getAttribute('item_data');
+            if (is_string($itemData)) $itemData = json_decode($itemData, true);
+            if (!is_array($itemData)) $itemData = [];
+
+            $arrayFields = ['statuses', 'colors'];
+            foreach ($arrayFields as $field) {
+                if (isset($itemData[$field]) && !is_array($itemData[$field])) {
+                    $itemData[$field] = $itemData[$field] ? [$itemData[$field]] : [];
+                }
+            }
+
+            $item->setAttribute('item_data', $itemData);
+            return $item;
+        });
+        $groupedInventoryItems = $inventoryItems->groupBy('inventory_id');
+
+        return view('item_lists.transfer', [
+            'itemList' => $itemList,
+            'sor' => $sor,
+            'tetel' => $tetel,
+            'stock_entry' => $stock_entry,
+            'customers' => $customers,
+            'businesses' => $businesses,
+            'categories' => $categories,
+            'product_colors' => $product_colors,
+            'product_statuses' => $product_statuses,
+            'product_types' => $product_types,
+            'product_signs' => $product_signs,
+            'warehouse' => $warehouse,
+            'currencies' => Currency::where('status', 1)->orderBy('currency_id', 'ASC')->get(),
+            'price_types' => $price_types,
+            'vat_types' => $vat_types,
+            'karats' => $karats,
+            'category2s' => $category2s,
+            'business_markings' => $business_markings,
+            'inventoryItems' => $inventoryItems,
+            'groupedInventoryItems' => $groupedInventoryItems,
             'prefill' => $prefill,
+            'show' => false,
         ]);
     }
 
@@ -1383,6 +1569,17 @@ class ItemListController extends Controller
 
             $data = $this->normalizeImportedPayload($data);
 
+            $atvevoBoltNev = $data['header']['atvevo_bolt']['nev'] ?? null;
+            if ($atvevoBoltNev) {
+                $alias = BusinessAlias::with('warehouse')->where('name', $atvevoBoltNev)->where('aktiv', 1)->first();
+                if ($alias) {
+                    $itemList->business_id = $alias->business_id;
+                    if ($alias->warehouse_id) {
+                        $itemList->storage_id = $alias->warehouse_id;
+                    }
+                }
+            }
+
             $jsonFileName = 'gemini-code-' . round(microtime(true) * 1000) . '.json';
             $jsonRelativePath = 'gemini/' . $jsonFileName;
 
@@ -1438,6 +1635,17 @@ class ItemListController extends Controller
             }
 
             $data = $this->normalizeImportedPayload($data);
+
+            $atvevoBoltNev = $data['header']['atvevo_bolt']['nev'] ?? null;
+            if ($atvevoBoltNev) {
+                $alias = BusinessAlias::with('warehouse')->where('name', $atvevoBoltNev)->where('aktiv', 1)->first();
+                if ($alias) {
+                    $businessId = $alias->business_id;
+                    if ($alias->warehouse_id) {
+                        $storageId = $alias->warehouse_id;
+                    }
+                }
+            }
 
             $storedJsonPath = $jsonFile->store('gemini', 'local');
 

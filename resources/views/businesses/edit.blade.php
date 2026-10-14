@@ -16,10 +16,23 @@
                     </div>
                 </div>
                 <div class="card-body ">
+                    <ul class="nav nav-tabs mb-4" id="business-tabs" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" id="business-data-tab" data-toggle="pill" href="#business-data" role="tab" aria-controls="business-data" aria-selected="true">Alap adatok</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="business-markings-tab" data-toggle="pill" href="#business-markings" role="tab" aria-controls="business-markings" aria-selected="false">Szállítói jelzések</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="business-aliases-tab" data-toggle="pill" href="#business-aliases" role="tab" aria-controls="business-aliases" aria-selected="false">Aliasok</a>
+                        </li>
+                    </ul>
                     <form id="business_form" method="post" action="{{ route('business.update', $business->business_id) }}" enctype="multipart/form-data">
                         @csrf
                         @method('patch')
 
+                        <div class="tab-content" id="business-tabs-content">
+                        <div class="tab-pane fade show active" id="business-data" role="tabpanel" aria-labelledby="business-data-tab">
                         <div class="row">
                             <div class="col-lg-6">
                                 <div class="card-body ">
@@ -244,6 +257,188 @@
                                 </div>
                             </div>
                         
+                        </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="business-markings" role="tabpanel" aria-labelledby="business-markings-tab">
+                            <fieldset>
+                                <input type="hidden" name="business_marking_id" value="">
+
+                                <div class="row">
+                                    <div class="col-lg-4">
+                                        <div class="form-group">
+                                            <label class="form-control-label" for="business_marking_name">Betű jelzés</label>
+                                            <input type="text" name="business_marking_name" id="business_marking_name" class="form-control" maxlength="255">
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-4">
+                                        <div class="form-group">
+                                            <label class="form-control-label" for="business_marking_product_status_id">Állapot</label>
+                                            <select name="business_marking_product_status_id" id="business_marking_product_status_id" class="form-control">
+                                                <option value="">- válasszon -</option>
+                                                @foreach($active_product_statuses as $product_status)
+                                                    <option value="{{ $product_status->product_status_id }}" data-price="{{ $product_status->price }}" data-vat-name="{{ optional($product_status->vatType)->name }}">
+                                                        {{ $product_status->name }}
+                                                    </option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-2">
+                                        <div class="form-group mt-4 pt-2">
+                                            <div class="form-check">
+                                                <label class="form-check-label">
+                                                    <input class="form-check-input" type="checkbox" name="business_marking_default" value="1">
+                                                    <span class="form-check-sign"></span>
+                                                    Alapértelmezett
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-2">
+                                        <div class="form-group mt-4 pt-2">
+                                            <div class="form-check">
+                                                <label class="form-check-label">
+                                                    <input class="form-check-input" type="checkbox" name="business_marking_status" value="1" checked>
+                                                    <span class="form-check-sign"></span>
+                                                    Aktív
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-lg-4">
+                                        <div class="form-group">
+                                            <label class="form-control-label" for="business_marking_price_info">Állapot ára (információ)</label>
+                                            <input type="text" id="business_marking_price_info" class="form-control" disabled>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-4">
+                                        <div class="form-group">
+                                            <label class="form-control-label" for="business_marking_vat_info">Áfa típus (információ)</label>
+                                            <input type="text" id="business_marking_vat_info" class="form-control" disabled>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-4 d-flex align-items-end">
+                                        <div class="form-group">
+                                            <button type="button" class="btn btn-success save_business_marking"><i class="fa fa-save"></i> Jelzés mentése</button>
+                                            <button type="button" class="btn btn-secondary reset_business_marking_form">Új jelzés</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </fieldset>
+
+                            <fieldset>
+                                <div class="row">
+                                    <div class="col-lg-12">
+                                        <table class="table table-sm m-0 business_markings_table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Betű jelzés</th>
+                                                    <th>Állapot</th>
+                                                    <th>Ár</th>
+                                                    <th>Áfa</th>
+                                                    <th>Alapértelmezett</th>
+                                                    <th>Aktív</th>
+                                                    <th>Művelet</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach($business->business_markings as $marking)
+                                                    <tr class="grey_background business_marking_row_{{ $marking->id }}" data-id="{{ $marking->id }}" data-name="{{ $marking->name }}" data-product_status_id="{{ $marking->product_status_id }}" data-default="{{ $marking->default ? 1 : 0 }}" data-status="{{ $marking->status ? 1 : 0 }}">
+                                                        <td class="business_marking_name">{{ $marking->name }}</td>
+                                                        <td class="business_marking_product_status">{{ optional($marking->productStatus)->name }}</td>
+                                                        <td class="business_marking_price">{{ optional($marking->productStatus)->price }}</td>
+                                                        <td class="business_marking_vat">{{ optional(optional($marking->productStatus)->vatType)->name }}</td>
+                                                        <td class="business_marking_default">{{ $marking->default ? 'Igen' : 'Nem' }}</td>
+                                                        <td class="business_marking_status">{{ $marking->status ? 'Igen' : 'Nem' }}</td>
+                                                        <td>
+                                                            <button type="button" class="btn btn-success edit_business_marking" data-id="{{ $marking->id }}"><i class="fa fa-edit"></i></button>
+                                                            <button type="button" class="btn btn-danger delete_business_marking" data-id="{{ $marking->id }}"><i class="fa fa-trash"></i></button>
+                                                        </td>
+                                                    </tr>
+                                                @endforeach
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </fieldset>
+                        </div>
+
+                        <div class="tab-pane fade" id="business-aliases" role="tabpanel" aria-labelledby="business-aliases-tab">
+                            <fieldset>
+                                <input type="hidden" name="business_alias_id" value="">
+
+                                <div class="row">
+                                    <div class="col-lg-5">
+                                        <div class="form-group">
+                                            <label class="form-control-label" for="business_alias_name">Név (alias)</label>
+                                            <input type="text" name="business_alias_name" id="business_alias_name" class="form-control" maxlength="255">
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-4">
+                                        <div class="form-group">
+                                            <label class="form-control-label" for="business_alias_warehouse_id">Raktár</label>
+                                            <select name="business_alias_warehouse_id" id="business_alias_warehouse_id" class="form-control">
+                                                <option value="">- válasszon -</option>
+                                                @foreach($warehouses as $warehouse)
+                                                    <option value="{{ $warehouse->warehouse_id }}">{{ $warehouse->name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-1">
+                                        <div class="form-group mt-4 pt-2">
+                                            <div class="form-check">
+                                                <label class="form-check-label">
+                                                    <input class="form-check-input" type="checkbox" name="business_alias_aktiv" value="1" checked>
+                                                    <span class="form-check-sign"></span>
+                                                    Aktív
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-2 d-flex align-items-end">
+                                        <div class="form-group">
+                                            <button type="button" class="btn btn-success save_business_alias"><i class="fa fa-save"></i> Mentés</button>
+                                            <button type="button" class="btn btn-secondary reset_business_alias_form">Új alias</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </fieldset>
+
+                            <fieldset>
+                                <div class="row">
+                                    <div class="col-lg-12">
+                                        <table class="table table-sm m-0 business_aliases_table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Név (alias)</th>
+                                                    <th>Raktár</th>
+                                                    <th>Aktív</th>
+                                                    <th>Művelet</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach($business->business_aliases as $alias)
+                                                    <tr class="grey_background business_alias_row_{{ $alias->id }}" data-id="{{ $alias->id }}" data-name="{{ $alias->name }}" data-warehouse_id="{{ $alias->warehouse_id }}" data-aktiv="{{ $alias->aktiv ? 1 : 0 }}">
+                                                        <td class="business_alias_name">{{ $alias->name }}</td>
+                                                        <td class="business_alias_warehouse">{{ optional($alias->warehouse)->name }}</td>
+                                                        <td class="business_alias_aktiv">{{ $alias->aktiv ? 'Igen' : 'Nem' }}</td>
+                                                        <td>
+                                                            <button type="button" class="btn btn-success edit_business_alias" data-id="{{ $alias->id }}"><i class="fa fa-edit"></i></button>
+                                                            <button type="button" class="btn btn-danger delete_business_alias" data-id="{{ $alias->id }}"><i class="fa fa-trash"></i></button>
+                                                        </td>
+                                                    </tr>
+                                                @endforeach
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </fieldset>
+                        </div>
                         </div>
                     </form>
                 </div>
@@ -632,6 +827,223 @@ $(document).ready(function () {
         currentDate = currentDate.plus({ months: 1 });
         renderCalendar();
     });
+
+    function updateBusinessMarkingStatusInfo() {
+        let selected = $('#business_marking_product_status_id').find('option:selected');
+        $('#business_marking_price_info').val(selected.data('price') || '');
+        $('#business_marking_vat_info').val(selected.data('vat-name') || '');
+    }
+
+    function resetBusinessMarkingForm() {
+        $('input[name=business_marking_id]').val('');
+        $('input[name=business_marking_name]').val('');
+        $('#business_marking_product_status_id').val('');
+        $('input[name=business_marking_default]').prop('checked', false);
+        $('input[name=business_marking_status]').prop('checked', true);
+        updateBusinessMarkingStatusInfo();
+    }
+
+    function fillBusinessMarkingForm(markingId) {
+        let row = $('.business_marking_row_' + markingId);
+
+        $('input[name=business_marking_id]').val(row.data('id'));
+        $('input[name=business_marking_name]').val(row.data('name'));
+        $('#business_marking_product_status_id').val(row.data('product_status_id'));
+        $('input[name=business_marking_default]').prop('checked', parseInt(row.data('default'), 10) === 1);
+        $('input[name=business_marking_status]').prop('checked', parseInt(row.data('status'), 10) === 1);
+        updateBusinessMarkingStatusInfo();
+
+        $('a[href="#business-markings"]').tab('show');
+        $('input[name=business_marking_name]').focus();
+    }
+
+    function reloadBusinessMarkings() {
+        $.ajax({
+            method: 'POST',
+            url: '/ajax/load_business_markings',
+            data: { business_id: '{{ $business->business_id }}' }
+        }).done(function(html) {
+            $('.business_markings_table tbody').html(html);
+        });
+    }
+
+    $('#business_marking_product_status_id').change(function() {
+        updateBusinessMarkingStatusInfo();
+    });
+
+    $('.reset_business_marking_form').click(function() {
+        resetBusinessMarkingForm();
+    });
+
+    $('.save_business_marking').click(function() {
+        let markingName = $('input[name=business_marking_name]').val();
+        let productStatusId = $('#business_marking_product_status_id').val();
+
+        if (!markingName.length) {
+            $.notify({ icon: 'done', message: 'A betű jelzés nem lehet üres.' }, {type: 'danger', timer: 3000, placement: {from: 'top', align: 'right'}});
+            return false;
+        }
+
+        if (!productStatusId) {
+            $.notify({ icon: 'done', message: 'Az állapot kötelező.' }, {type: 'danger', timer: 3000, placement: {from: 'top', align: 'right'}});
+            return false;
+        }
+
+        $.ajax({
+            method: 'POST',
+            url: '/ajax/save_business_marking',
+            data: {
+                business_marking_id: $('input[name=business_marking_id]').val(),
+                business_id: '{{ $business->business_id }}',
+                name: markingName,
+                product_status_id: productStatusId,
+                default: $('input[name=business_marking_default]').is(':checked') ? 1 : 0,
+                status: $('input[name=business_marking_status]').is(':checked') ? 1 : 0
+            }
+        }).done(function() {
+            reloadBusinessMarkings();
+            resetBusinessMarkingForm();
+            $.notify({ icon: 'done', message: 'Jelzés sikeresen mentve.' }, {type: 'success', timer: 3000, placement: {from: 'top', align: 'right'}});
+        });
+    });
+
+    $('body').on('click', '.edit_business_marking', function() {
+        fillBusinessMarkingForm($(this).attr('data-id'));
+    });
+
+    $('body').on('click', '.business_markings_table tbody tr', function(e) {
+        if ($(e.target).closest('button').length) {
+            return;
+        }
+        fillBusinessMarkingForm($(this).data('id'));
+    });
+
+    $('body').on('click', '.delete_business_marking', function() {
+        var markingId = $(this).attr('data-id');
+
+        swal({
+            text: 'Biztosan törli ezt a szállítói jelzést?',
+            type: 'warning',
+            showCancelButton: true,
+            confirmButtonClass: 'btn btn-success',
+            cancelButtonClass: 'btn btn-danger',
+            confirmButtonText: 'Igen, törlöm',
+            cancelButtonText: 'Nem',
+            buttonsStyling: false
+        }, function() {
+            $.ajax({
+                method: 'POST',
+                url: '/ajax/delete_business_marking',
+                data: { id: markingId }
+            }).done(function() {
+                reloadBusinessMarkings();
+                if ($('input[name=business_marking_id]').val() == markingId) {
+                    resetBusinessMarkingForm();
+                }
+                $.notify({ icon: 'done', message: 'Jelzés sikeresen törölve.' }, {type: 'success', timer: 3000, placement: {from: 'top', align: 'right'}});
+            });
+        });
+    });
+
+    resetBusinessMarkingForm();
+
+    function resetBusinessAliasForm() {
+        $('input[name=business_alias_id]').val('');
+        $('input[name=business_alias_name]').val('');
+        $('#business_alias_warehouse_id').val('');
+        $('input[name=business_alias_aktiv]').prop('checked', true);
+    }
+
+    function fillBusinessAliasForm(aliasId) {
+        let row = $('.business_alias_row_' + aliasId);
+
+        $('input[name=business_alias_id]').val(row.data('id'));
+        $('input[name=business_alias_name]').val(row.data('name'));
+        $('#business_alias_warehouse_id').val(row.data('warehouse_id'));
+        $('input[name=business_alias_aktiv]').prop('checked', parseInt(row.data('aktiv'), 10) === 1);
+
+        $('a[href="#business-aliases"]').tab('show');
+        $('input[name=business_alias_name]').focus();
+    }
+
+    function reloadBusinessAliases() {
+        $.ajax({
+            method: 'POST',
+            url: '/ajax/load_business_aliases',
+            data: { business_id: '{{ $business->business_id }}' }
+        }).done(function(html) {
+            $('.business_aliases_table tbody').html(html);
+        });
+    }
+
+    $('.reset_business_alias_form').click(function() {
+        resetBusinessAliasForm();
+    });
+
+    $('.save_business_alias').click(function() {
+        let aliasName = $('input[name=business_alias_name]').val();
+
+        if (!aliasName.length) {
+            $.notify({ icon: 'done', message: 'A név (alias) nem lehet üres.' }, {type: 'danger', timer: 3000, placement: {from: 'top', align: 'right'}});
+            return false;
+        }
+
+        $.ajax({
+            method: 'POST',
+            url: '/ajax/save_business_alias',
+            data: {
+                business_alias_id: $('input[name=business_alias_id]').val(),
+                business_id: '{{ $business->business_id }}',
+                name: aliasName,
+                warehouse_id: $('#business_alias_warehouse_id').val(),
+                aktiv: $('input[name=business_alias_aktiv]').is(':checked') ? 1 : 0
+            }
+        }).done(function() {
+            reloadBusinessAliases();
+            resetBusinessAliasForm();
+            $.notify({ icon: 'done', message: 'Alias sikeresen mentve.' }, {type: 'success', timer: 3000, placement: {from: 'top', align: 'right'}});
+        });
+    });
+
+    $('body').on('click', '.edit_business_alias', function() {
+        fillBusinessAliasForm($(this).attr('data-id'));
+    });
+
+    $('body').on('click', '.business_aliases_table tbody tr', function(e) {
+        if ($(e.target).closest('button').length) {
+            return;
+        }
+        fillBusinessAliasForm($(this).data('id'));
+    });
+
+    $('body').on('click', '.delete_business_alias', function() {
+        var aliasId = $(this).attr('data-id');
+
+        swal({
+            text: 'Biztosan törli ezt az aliast?',
+            type: 'warning',
+            showCancelButton: true,
+            confirmButtonClass: 'btn btn-success',
+            cancelButtonClass: 'btn btn-danger',
+            confirmButtonText: 'Igen, törlöm',
+            cancelButtonText: 'Nem',
+            buttonsStyling: false
+        }, function() {
+            $.ajax({
+                method: 'POST',
+                url: '/ajax/delete_business_alias',
+                data: { id: aliasId }
+            }).done(function() {
+                reloadBusinessAliases();
+                if ($('input[name=business_alias_id]').val() == aliasId) {
+                    resetBusinessAliasForm();
+                }
+                $.notify({ icon: 'done', message: 'Alias sikeresen törölve.' }, {type: 'success', timer: 3000, placement: {from: 'top', align: 'right'}});
+            });
+        });
+    });
+
+    resetBusinessAliasForm();
     
     // Save button for business data
     $('.save_business').click(function(){

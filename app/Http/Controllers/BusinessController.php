@@ -49,7 +49,7 @@ class BusinessController extends Controller
             ->where('status', 1)
             ->orderBy('name', 'ASC')
             ->get();
-        $business->load(['business_markings.productStatus.vatType']);
+        $business->load(['business_markings.productStatus.vatType', 'business_aliases.warehouse']);
 
         return view('businesses.edit', [
             'business' => $business,
@@ -97,7 +97,7 @@ class BusinessController extends Controller
             ->where('status', 1)
             ->orderBy('name', 'ASC')
             ->get();
-        $business->load(['business_markings.productStatus.vatType']);
+        $business->load(['business_markings.productStatus.vatType', 'business_aliases.warehouse']);
 
         return view('businesses.edit', [
             'business' => $business,

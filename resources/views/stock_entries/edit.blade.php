@@ -14,7 +14,7 @@
                 <div class="row align-items-center">
                     <div class="col-7"></div>
                     <div class="col-2 text-right mt10">
-                        <a href="{{ $backRoute ?? route('stock_entry.index') }}" class="btn btn-sm btn-warning"><i class="fa fa-arrow-left"></i> {{ $backLabel ?? 'Vissza' }}</a>
+                        <a href="{{ route('stock_entry.index') }}" class="btn btn-sm btn-warning"><i class="fa fa-arrow-left"></i> Vissza</a>
                     </div>
                 </div>
             </div>
@@ -795,7 +795,7 @@
                                                             <label class="form-control-label">Szín</label>
                                                             <select multiple name="new_colors[]" class="selectpicker product_colors_select form-control">
                                                                 @foreach($product_colors ?? [] as $color)
-                                                                    <option value="{{ $color->product_color_id }}" {{ in_array($color->product_color_id, old('new_colors', $prefill['colors'] ?? [])) ? 'selected' : '' }}>{{ $color->name }}</option>
+                                                                    <option value="{{ $color->product_color_id }}" {{ in_array($color->product_color_id, old('new_colors', [])) ? 'selected' : '' }}>{{ $color->name }}</option>
                                                                 @endforeach
                                                             </select>
                                                         </div>
@@ -806,7 +806,7 @@
                                                             <select name="new_category2_id" id="new_category2_id" class="selectpicker form-control">
                                                                 <option value="">- válasszon -</option>
                                                                 @foreach($category2s ?? [] as $category2)
-                                                                    <option value="{{ $category2->category2_id }}" {{ (string) old('new_category2_id', $prefill['category2_id'] ?? '') === (string) $category2->category2_id ? 'selected' : '' }}>{{ $category2->name }}</option>
+                                                                    <option value="{{ $category2->category2_id }}" {{ (string) old('new_category2_id') === (string) $category2->category2_id ? 'selected' : '' }}>{{ $category2->name }}</option>
                                                                 @endforeach
                                                             </select>
                                                         </div>
@@ -814,14 +814,14 @@
                                                     <div class="col-lg-2">
                                                         <div class="form-group">
                                                             <label class="form-control-label">Méret</label>
-                                                            <input type="text" class="form-control" name="new_size" id="new_size" value="{{ old('new_size', $prefill['size'] ?? '') }}">
+                                                            <input type="text" class="form-control" name="new_size" id="new_size" value="{{ old('new_size') }}">
                                                         </div>
                                                     </div>
                                                     <div class="col-lg-2">
                                                         <div class="form-group">
                                                             
                                                             <label class="form-control-label">Súly</label>
-                                                            <input type="number" class="form-control sei_weight" name="new_weight" value="{{ old('new_weight', $prefill['weight'] ?? '') }}">
+                                                            <input type="number" class="form-control sei_weight" name="new_weight" value="{{ old('new_weight') }}">
                                                         
                                                         </div>
                                                     </div>
@@ -841,40 +841,39 @@
                                                                 @include('products.product_types_options', ['product_types' => $product_types, 'product_type_id' => $selectedNewTermekTipusId])
                                                             </select>
                                                             <input type="hidden" value="1" name="new_sei_is_unique">
-                                                            <input type="hidden" name="item_list_id" value="{{ $prefill['item_list_id'] ?? '' }}">
-                                                            <input type="hidden" name="item_list_sor" value="{{ $prefill['item_list_sor'] ?? '' }}">
                                                         </div>
                                                     </div>
                                                     <div class="col-lg-2">
                                                         <div class="form-group">
                                                             <label class="form-control-label">Leírás</label>
-                                                            <input type="text" class="form-control sei_description" name="new_description" value="{{ old('new_description', $prefill['description'] ?? '') }}">
+                                                            <input type="text" class="form-control sei_description" name="new_description" value="{{ old('new_description') }}">
                                                         </div>
                                                     </div>
                                                     <div class="col-lg-2">
                                                         <div class="form-group">
                                                             <label class="form-control-label">Mennyiség</label>
-                                                            <input type="number" class="form-control sei_quantity" name="new_quantity" value="{{ old('new_quantity', $prefill['quantity'] ?? 1) }}">
+                                                            <input type="number" class="form-control sei_quantity" name="new_quantity" value="{{ old('new_quantity', 1) }}">
                                                         </div>
                                                     </div>
                                                     <div class="col-lg-2">
                                                         <div class="form-group">
                                                             <label class="form-control-label">Egységár</label>
-                                                            <input type="number" class="form-control sei_oneprice" name="new_oneprice" value="{{ old('new_oneprice', $prefill['oneprice'] ?? '') }}">
+                                                            <input type="number" class="form-control sei_oneprice" name="new_oneprice" value="{{ old('new_oneprice') }}">
                                                         </div>
                                                     </div>
                                                     <div class="col-lg-2">
                                                         <div class="form-group">
                                                             <label class="form-control-label">Ár</label>
-                                                            <input type="number" disabled class="form-control sei_price" name="new_price" value="{{ old('new_price', $prefill['price'] ?? '') }}">
+                                                            <input type="number" disabled class="form-control sei_price" name="new_price" value="{{ old('new_price') }}">
                                                         </div>
                                                     </div>
                                                     <div class="col-lg-2">
                                                         <div class="form-group">
                                                             <label class="form-control-label">Gyártási szám</label>
-                                                            <input type="text" class="form-control sei_factory_number" name="new_factory_number" value="{{ old('new_factory_number', $prefill['factory_number'] ?? '') }}">
+                                                            <input type="text" class="form-control sei_factory_number" name="new_factory_number" value="{{ old('new_factory_number') }}">
                                                         </div>
                                                     </div>
+                                                </div>
                                                    
                                                     
                                                 </div>
@@ -1380,6 +1379,7 @@
             sei_data.append('new_price', $container.find('[name="new_price"]').val());
             sei_data.append('new_factory_number', $container.find('[name="new_factory_number"]').val());
             sei_data.append('new_weight', $container.find('[name="new_weight"]').val());
+            sei_data.append('new_is_broken_gold', $container.find('[name="new_is_broken_gold"]').is(':checked') ? 1 : 0);
             sei_data.append('new_customer_marking_id', $container.find('[name="new_customer_marking_id"]').val());
             sei_data.append('new_vzj', $container.find('[name="new_customer_marking_id"] option:selected').text());
             sei_data.append('new_category_id', $container.find('[name="new_category_id"]').val());

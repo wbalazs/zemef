@@ -143,6 +143,16 @@
                                             <button style="margin-bottom: 16px;" type="submit" class="btn btn-primary w-100"><i class="fas fa-search"></i> Keresés</button>
                                         </div>
                                     </div>
+                                    <div class="row">
+                                        <div class="col-md-3 mb-3">
+                                            <label for="stock-karat-filter">Karát</label>
+                                            <select id="stock-karat-filter" name="karat_ids[]" class="form-control select2" multiple>
+                                                @foreach ($karats as $karat)
+                                                    <option value="{{ $karat->karat_id }}" {{ in_array($karat->karat_id, (array) request('karat_ids', [])) ? 'selected' : '' }}>{{ $karat->name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    </div>
                                 </form>
                             </div>
                         </div>
@@ -181,6 +191,24 @@
                                 <tbody>
                                     <!-- Data will be loaded via AJAX -->
                                 </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <th></th>
+                                        <th>Összesen</th>
+                                        <th></th>
+                                        <th></th>
+                                        <th></th>
+                                        <th></th>
+                                        <th></th>
+                                        <th></th>
+                                        <th></th>
+                                        <th></th>
+                                        <th></th>
+                                        <th></th>
+                                        <th></th>
+                                        <th></th>
+                                    </tr>
+                                </tfoot>
                             </table>
                         </div>
                         
@@ -409,6 +437,7 @@
                         d.price_per_gram_min = $('input[name="price_per_gram_min"]').val();
                         d.price_per_gram_max = $('input[name="price_per_gram_max"]').val();
                         d.status_ids = $('select[name="status_ids[]"]').val();
+                        d.karat_ids = $('select[name="karat_ids[]"]').val();
                     }
                 },
                 columns: [
@@ -429,7 +458,19 @@
                 ],
                 order: [[1, 'asc']],
                 pageLength: 25,
-                
+
+                footerCallback: function() {
+                    let api = this.api();
+                    let response = api.ajax.json();
+                    let totals = response && !response.error ? response.totals : null;
+                    let weightFormat = new Intl.NumberFormat('hu-HU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    let priceFormat = new Intl.NumberFormat('hu-HU', { maximumFractionDigits: 0 });
+
+                    $(api.column(5).footer()).text(totals ? weightFormat.format(totals.weight) + ' g' : '');
+                    $(api.column(8).footer()).text(totals ? priceFormat.format(totals.selling_price) + ' Ft' : '');
+                    $(api.column(9).footer()).text(totals ? priceFormat.format(totals.purchase_price) + ' Ft' : '');
+                },
+
                 drawCallback: function(settings) {
                     setupDrawCallback();
                 }

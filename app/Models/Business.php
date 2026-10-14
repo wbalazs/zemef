@@ -74,4 +74,9 @@ class Business extends Model
     {
         return $this->hasMany(BusinessMarking::class, 'business_id', 'business_id');
     }
+
+    public function business_aliases(): HasMany
+    {
+        return $this->hasMany(BusinessAlias::class, 'business_id', 'business_id');
+    }
 }

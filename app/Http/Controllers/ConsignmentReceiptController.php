@@ -181,14 +181,27 @@ class ConsignmentReceiptController extends Controller
 
         $inventoryItems = Inventory::where('source_type', 'consignment')
             ->where('source_header_id', $consignment_receipt->consignment_receipt_id)
+            ->orderBy('sorszam', 'ASC')
+            ->orderBy('inventory_id', 'ASC')
             ->get()
-            ->map(function ($item) use ($consignment_receipt) {
+            ->map(function ($item, $index) use ($consignment_receipt) {
                 $itemData = $item->getAttribute('item_data');
                 if (is_string($itemData)) {
                     $itemData = json_decode($itemData, true);
                 }
                 if (!is_array($itemData)) {
                     $itemData = [];
+                }
+
+                $sorszam = (int) ($itemData['sorszam'] ?? $item->sorszam ?? ($index + 1));
+                $itemData['sorszam'] = $sorszam;
+                if (!$item->sorszam || !isset($item->item_data['sorszam'])) {
+                    $item->sorszam = $sorszam;
+                    $item->item_data = $itemData;
+                    if ($consignment_receipt->ticket_number && $consignment_receipt->ticket_number !== '--empty_row--') {
+                        $item->code = $consignment_receipt->ticket_number . '/' . $sorszam;
+                    }
+                    $item->save();
                 }
 
                 // Header fallback, hogy a régi tételek is kompatibilisek maradjanak.
@@ -225,6 +238,8 @@ class ConsignmentReceiptController extends Controller
                 $item->setAttribute('item_data', $itemData);
                 return $item;
             });
+
+        $consignment_receipt->setRelation('inventoryItems', $inventoryItems);
 
 
         return view('consignment_receipts.edit', [
@@ -308,6 +323,8 @@ class ConsignmentReceiptController extends Controller
     {
         $request->validate([
             'consignment_status' => ['required', 'integer', 'in:' . implode(',', array_keys(ConsignmentReceiptStatus::options()))],
+            'sales_condition_hallmark' => ['nullable', 'boolean'],
+            'sales_condition_hallmark_cost' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         $consignment_receipt = ConsignmentReceipt::find($request->consignment_receipt_id);
@@ -417,6 +434,19 @@ class ConsignmentReceiptController extends Controller
             'label_type' => $request->label_type_default,
             'category2_id' => $request->category2_id,
             'size' => $request->size,
+            'sales_condition_1' => filter_var($request->input('sales_condition_1', 0), FILTER_VALIDATE_BOOLEAN) ? 1 : 0,
+            'sales_condition_1_min_price' => $request->input('sales_condition_1_min_price'),
+            'sales_condition_2' => filter_var($request->input('sales_condition_2', 0), FILTER_VALIDATE_BOOLEAN) ? 1 : 0,
+            'sales_condition_2_amount' => $request->input('sales_condition_2_amount'),
+            'sales_condition_3' => filter_var($request->input('sales_condition_3', 0), FILTER_VALIDATE_BOOLEAN) ? 1 : 0,
+            'sales_condition_3_min_price' => $request->input('sales_condition_3_min_price'),
+            'sales_condition_3_percent' => $request->input('sales_condition_3_percent'),
+            'sales_condition_3_amount' => $request->input('sales_condition_3_amount'),
+            'sales_condition_4' => filter_var($request->input('sales_condition_4', 0), FILTER_VALIDATE_BOOLEAN) ? 1 : 0,
+            'sales_condition_4_months' => $request->input('sales_condition_4_months'),
+            'sales_condition_4_buyout_price' => $request->input('sales_condition_4_buyout_price'),
+            'sales_condition_hallmark' => $request->boolean('sales_condition_hallmark') ? 1 : 0,
+            'sales_condition_hallmark_cost' => $request->input('sales_condition_hallmark_cost'),
         ];
 
         $consignment_receipt->update(
@@ -435,7 +465,26 @@ class ConsignmentReceiptController extends Controller
         $consignment_receipt->header_data = $headerData;
         $consignment_receipt->save();
 
-        
+        if ($consignment_receipt->ticket_number && $consignment_receipt->ticket_number !== '--empty_row--') {
+            $existingItems = Inventory::where('source_type', 'consignment')
+                ->where('source_header_id', $consignment_receipt->consignment_receipt_id)
+                ->orderBy('sorszam', 'ASC')
+                ->orderBy('inventory_id', 'ASC')
+                ->get();
+
+            foreach ($existingItems as $index => $it) {
+                $itData = is_array($it->item_data) ? $it->item_data : json_decode($it->item_data, true);
+                if (!is_array($itData)) {
+                    $itData = [];
+                }
+                $sorszam = (int) ($itData['sorszam'] ?? $it->sorszam ?? ($index + 1));
+                $itData['sorszam'] = $sorszam;
+                $it->sorszam = $sorszam;
+                $it->item_data = $itData;
+                $it->code = $consignment_receipt->ticket_number . '/' . $sorszam;
+                $it->save();
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -488,6 +537,33 @@ class ConsignmentReceiptController extends Controller
                                 ->where('inventory_id', $editInventoryId)
                                 ->firstOrFail();
 
+            $existingItemData = is_array($inventory->item_data) ? $inventory->item_data : json_decode($inventory->item_data, true);
+            if (!is_array($existingItemData)) {
+                $existingItemData = [];
+            }
+
+            $existingSorszam = (int) ($existingItemData['sorszam'] ?? $inventory->sorszam ?? 0);
+            if ($existingSorszam <= 0) {
+                $allCurrentItems = Inventory::where('source_type', 'consignment')
+                    ->where('source_header_id', $request->consignment_receipt_id)
+                    ->orderBy('inventory_id', 'ASC')
+                    ->get();
+                $pos = 1;
+                foreach ($allCurrentItems as $it) {
+                    if ($it->inventory_id == $inventory->inventory_id) {
+                        $existingSorszam = $pos;
+                        break;
+                    }
+                    $pos++;
+                }
+            }
+            $existingSorszam = $existingSorszam ?: 1;
+            $itemData['sorszam'] = $existingSorszam;
+
+            $inventory->sorszam = $existingSorszam;
+            if ($consignment_receipt->ticket_number && $consignment_receipt->ticket_number !== '--empty_row--') {
+                $inventory->code = $consignment_receipt->ticket_number . '/' . $existingSorszam;
+            }
             $inventory->description = $request->cri_description;
             $inventory->quantity = $request->cri_quantity;
             $inventory->weight = $request->cri_weight;
@@ -495,7 +571,7 @@ class ConsignmentReceiptController extends Controller
             $inventory->oneprice = $request->cri_oneprice;
             $inventory->price = $request->cri_oneprice * $request->cri_quantity;
             $inventory->termek_tipus_id = $termekTipusId;
-            $inventory->item_data = array_merge(is_array($inventory->item_data) ? $inventory->item_data : [], $itemData);
+            $inventory->item_data = array_merge($existingItemData, $itemData);
             $inventory->save();
 
             // A kapcsolódó terméktípus frissítése
@@ -518,6 +594,19 @@ class ConsignmentReceiptController extends Controller
             $quantity = (int) $request->cri_quantity;
             $oneprice = (int) $request->cri_oneprice;
             $weight = $request->cri_weight ?: 0;
+
+            $existingItems = Inventory::where('source_type', 'consignment')
+                ->where('source_header_id', $consignment_receipt->consignment_receipt_id)
+                ->get();
+
+            $maxSorszam = 0;
+            foreach ($existingItems as $it) {
+                $itData = is_array($it->item_data) ? $it->item_data : json_decode($it->item_data, true);
+                $curSorszam = (int) ($itData['sorszam'] ?? $it->sorszam ?? 0);
+                if ($curSorszam > $maxSorszam) {
+                    $maxSorszam = $curSorszam;
+                }
+            }
 
             // Megnevezés opcionális: ha nincs, stock_entry mintára fix product_id-t használunk.
             $defaultProductId = 1;
@@ -560,9 +649,18 @@ class ConsignmentReceiptController extends Controller
             if ($is_unique) {
                 // Egyedi tételek: minden darabhoz külön inventory rekord
                 for ($i = 0; $i < $quantity; $i++) {
+                    $sorszam = $maxSorszam + $i + 1;
+                    $currentItemData = $itemData;
+                    $currentItemData['sorszam'] = $sorszam;
+
                     $inventory = new Inventory();
                     $inventory->product_id = $productId;
-                    $inventory->code = $inventory->generateInventoryCode($termekTipusId ?: $productId); // új
+                    $inventory->sorszam = $sorszam;
+                    if ($consignment_receipt->ticket_number && $consignment_receipt->ticket_number !== '--empty_row--') {
+                        $inventory->code = $consignment_receipt->ticket_number . '/' . $sorszam;
+                    } else {
+                        $inventory->code = $inventory->generateInventoryCode($termekTipusId ?: $productId);
+                    }
                     $inventory->name = $productName;
                     $inventory->description = $request->cri_description;
                     $inventory->factory_number = $request->cri_factory_number;
@@ -577,16 +675,25 @@ class ConsignmentReceiptController extends Controller
                     $inventory->source_header_id = $consignment_receipt->consignment_receipt_id;
                     $inventory->warehouse_to = $request->storage_id;
                     $inventory->termek_tipus_id = $termekTipusId;
-                    $inventory->item_data = $itemData;
+                    $inventory->item_data = $currentItemData;
                     $inventory->save();
 
                     $inventoryItems[] = $inventory;
                 }
             } else {
                 // Nem egyedi: egy inventory rekord a teljes mennyiséggel
+                $sorszam = $maxSorszam + 1;
+                $currentItemData = $itemData;
+                $currentItemData['sorszam'] = $sorszam;
+
                 $inventory = new Inventory();
                 $inventory->product_id = $productId;
-                $inventory->code = $inventory->generateInventoryCode($termekTipusId ?: $productId); // új
+                $inventory->sorszam = $sorszam;
+                if ($consignment_receipt->ticket_number && $consignment_receipt->ticket_number !== '--empty_row--') {
+                    $inventory->code = $consignment_receipt->ticket_number . '/' . $sorszam;
+                } else {
+                    $inventory->code = $inventory->generateInventoryCode($termekTipusId ?: $productId);
+                }
                 $inventory->name = $productName;
                 $inventory->description = $request->cri_description;
                 $inventory->factory_number = $request->cri_factory_number;
@@ -601,7 +708,7 @@ class ConsignmentReceiptController extends Controller
                 $inventory->source_header_id = $consignment_receipt->consignment_receipt_id;
                 $inventory->warehouse_to = $request->storage_id;
                 $inventory->termek_tipus_id = $termekTipusId;
-                $inventory->item_data = $itemData;
+                $inventory->item_data = $currentItemData;
                 $inventory->save();
 
                 $inventoryItems[] = $inventory;
@@ -611,7 +718,7 @@ class ConsignmentReceiptController extends Controller
         }
 
         // Nyomtatás kezelése
-        if ($request->print) {
+        if ($request->boolean('print')) {
             $consignment_receipt->printed_at = now();
             $consignment_receipt->save();
             session()->flash('print', $consignment_receipt->consignment_receipt_id);
@@ -879,28 +986,40 @@ class ConsignmentReceiptController extends Controller
     
     public function copyConsignmentReceipt(Request $request)
     {
-        DB::beginTransaction();
+        return DB::transaction(function () use ($request) {
+            $original = ConsignmentReceipt::findOrFail($request->consignment_receipt_id);
+            return $this->duplicateConsignmentReceipt($original);
+        });
+    }
 
-        $original = ConsignmentReceipt::findOrFail($request->consignment_receipt_id);
-
-        // Új bizományosi átvétel létrehozása
+    private function duplicateConsignmentReceipt(ConsignmentReceipt $original): int
+    {
         $serial = $this->getNextSerial();
-        $copy = new ConsignmentReceipt();
+        $copy = $original->replicate();
+        $copy->unsetRelations();
         $copy->ticket_number = 'BATV/' . $original->business_id . '/' . date('Y') . '/' . sprintf('%05d', $serial);
-        $copy->customer_id = $original->customer_id;
-        $copy->business_id = $original->business_id;
-        $copy->storage_id = $original->storage_id;
-        $copy->employee_id = $original->employee_id;
-        $copy->currency_id = $original->currency_id;
-        $copy->currency_value = $original->currency_value;
-        $copy->header_data = $original->header_data;
+        $copy->printed_at = null;
+        $copy->cancelled_at = null;
+        $copy->storno_cr_id = null;
+        $copy->storno_reason = null;
+        $copy->is_storno = 0;
+        $copy->status = 1;
         $copy->save();
 
         // Eredeti inventory tételek másolása
-        foreach ($original->inventoryItems as $oldItem) {
+        foreach ($original->inventoryItems as $oldIndex => $oldItem) {
+            $oldItemData = is_array($oldItem->item_data) ? $oldItem->item_data : json_decode($oldItem->item_data, true);
+            if (!is_array($oldItemData)) {
+                $oldItemData = [];
+            }
+            $sorszam = (int) ($oldItemData['sorszam'] ?? $oldItem->sorszam ?? ($oldIndex + 1));
+            $oldItemData['sorszam'] = $sorszam;
+
             // Új inventory tétel létrehozása (ugyanaz a product_id, de új source_header_id)
-            $newItem = new Inventory();
-            $newItem->product_id = $oldItem->product_id;
+            $newItem = $oldItem->replicate();
+            $newItem->unsetRelations();
+            $newItem->sorszam = $sorszam;
+            $newItem->code = $copy->ticket_number . '/' . $sorszam;
             $newItem->name = $oldItem->name;
             $newItem->description = $oldItem->description;
             $newItem->factory_number = $oldItem->factory_number;
@@ -915,7 +1034,7 @@ class ConsignmentReceiptController extends Controller
             $newItem->source_header_id = $copy->consignment_receipt_id;
             $newItem->warehouse_to = $copy->storage_id;
             $newItem->termek_tipus_id = $oldItem->termek_tipus_id;
-            $newItem->item_data = $oldItem->item_data;
+            $newItem->item_data = $oldItemData;
             $newItem->save();
 
             // Képek másolása (feltételezzük, hogy a ZImage táblában van module='consignment_receipt' és resource_id = inventory_id)
@@ -931,72 +1050,99 @@ class ConsignmentReceiptController extends Controller
                 File::copy($path . $image->image_path, $path . $newImagePath);
 
                 // Új kép rekord létrehozása
-                ZImage::create([
-                    'resource_id' => $newItem->inventory_id,
-                    'image_path' => $newImagePath,
-                    'module' => 'consignment_receipt', // vagy 'inventory' – a rendszertől függ
-                    'created_at' => now(),
-                ]);
+                $newImage = $image->replicate();
+                $newImage->resource_id = $newItem->inventory_id;
+                $newImage->image_path = $newImagePath;
+                $newImage->save();
             }
         }
 
-        DB::commit();
         return $copy->consignment_receipt_id;
     }
 
     public function cancelConsignmentReceipt(Request $request)
     {
-        try {
-            DB::beginTransaction();
+        $request->merge(['storno_reason' => trim((string) $request->input('storno_reason'))]);
+        $request->validate([
+            'consignment_receipt_id' => ['required', 'integer'],
+            'storno_reason' => ['required', 'string', 'max:2000'],
+            'create_new' => ['sometimes', 'boolean'],
+        ]);
 
-            $consignment_receipt = ConsignmentReceipt::find($request->consignment_receipt_id);
+        return DB::transaction(function () use ($request) {
+            $consignment_receipt = ConsignmentReceipt::where('consignment_receipt_id', $request->consignment_receipt_id)
+                ->lockForUpdate()->firstOrFail();
+            if (!$consignment_receipt->printed_at || $consignment_receipt->cancelled_at || $consignment_receipt->storno_cr_id || $consignment_receipt->is_storno) {
+                return response()->json(['message' => 'Csak lezárt, még nem sztornózott bizonylat sztornózható.'], 409);
+            }
+            $consignment_receipt->load('inventoryItems');
             $serial = $this->getNextSerial();
 
-            $storno_cr = new ConsignmentReceipt();
+            $storno_cr = $consignment_receipt->replicate();
+            $storno_cr->unsetRelations();
             $storno_cr->ticket_number = 'BATV/'.$consignment_receipt->business_id . '/' . date('Y') . '/' . sprintf('%05d', $serial);
-            $storno_cr->customer_id = $consignment_receipt->customer_id;
-            $storno_cr->business_id = $consignment_receipt->business_id;
-            $storno_cr->storage_id = $consignment_receipt->storage_id;
-            $storno_cr->employee_id = $consignment_receipt->employee_id;
-            $storno_cr->currency_id = $consignment_receipt->currency_id;
-            $storno_cr->currency_value = $consignment_receipt->currency_value;
             $storno_cr->storno_reason = $request->storno_reason;
             $storno_cr->is_storno = 1;
-            //Sztornó
             $storno_cr->status = 3;
+            $storno_cr->printed_at = now();
+            $storno_cr->cancelled_at = null;
+            $storno_cr->storno_cr_id = null;
             $storno_cr->save();
 
-            $consignment_receipt->cancelled_at = date('Y-m-d H:i:s');
+            $newReceiptId = $request->boolean('create_new') ? $this->duplicateConsignmentReceipt($consignment_receipt) : null;
+
+            $consignment_receipt->cancelled_at = now();
             $consignment_receipt->storno_cr_id = $storno_cr->consignment_receipt_id;
-            //Sztornózva
+            $consignment_receipt->storno_reason = $request->storno_reason;
             $consignment_receipt->status = 4;
             $consignment_receipt->save();
 
-            foreach ($consignment_receipt->consignment_receipt_items as $item) {
-
-                $cancel_cri = new ConsignmentReceiptItem();
-                $cancel_cri->consignment_receipt_id = $storno_cr->consignment_receipt_id;
-                $cancel_cri->name = $item->name;
-                $cancel_cri->description = $item->description;
-                $cancel_cri->quantity = $item->quantity*(-1);
-                $cancel_cri->weight = $item->weight;
-                $cancel_cri->factory_number = $item->factory_number;
-                $cancel_cri->oneprice = $item->oneprice;
-                $cancel_cri->price = $item->price;
-                $cancel_cri->product_id = $product->product_id;
-                $cancel_cri->status = 1;
-                $cancel_cri->warehouse_to = $consignment_receipt->storage_id;
-                $cancel_cri->save();
+            foreach ($consignment_receipt->inventoryItems as $item) {
+                $reversal = $item->replicate();
+                $reversal->unsetRelations();
+                $reversal->source_header_id = $storno_cr->consignment_receipt_id;
+                $reversal->code = $storno_cr->ticket_number . '/' . $item->sorszam;
+                $reversal->quantity = -$item->quantity;
+                $reversal->price = -$item->price;
+                $reversal->status = 0;
+                $reversal->save();
             }
 
-            DB::commit();
+            $consignment_receipt->inventoryItems()->update(['status' => 0]);
 
-            return response()->json(['data' => ['success' => 'success','message' => 'OK','consignment_receipt_id' =>  $storno_se->consignment_receipt_id]], 200);
+            return response()->json(['data' => [
+                'success' => 'success',
+                'consignment_receipt_id' => $storno_cr->consignment_receipt_id,
+                'new_consignment_receipt_id' => $newReceiptId,
+                'redirect_url' => route('consignment_receipt.edit', $newReceiptId ?? $consignment_receipt->consignment_receipt_id),
+                'print_url' => route('consignment_receipt.storno.print', $storno_cr->consignment_receipt_id),
+            ]]);
+        });
+    }
 
-        } catch (\Exception $e) {
-            DB::rollback();
-            return response()->json(['data' => ['success' => 'error','message' => 'Hiba történt a sztornózás közben: ' . $e->getMessage()]], 200);
-        }
+    public function printStorno(ConsignmentReceipt $consignment_receipt)
+    {
+        abort_unless($consignment_receipt->is_storno, 404);
+
+        return PDF::loadView('pdf.consignment_receipt_storno', ['consignment_receipt' => $consignment_receipt])
+            ->setPaper('a4')
+            ->stream('storno-' . $consignment_receipt->consignment_receipt_id . '.pdf');
+    }
+
+    public function deleteConsignmentReceiptItem(Request $request)
+    {
+        $request->validate(['consignment_receipt_id' => ['required', 'integer'], 'inventory_id' => ['required', 'integer']]);
+
+        return DB::transaction(function () use ($request) {
+            $receipt = ConsignmentReceipt::where('consignment_receipt_id', $request->consignment_receipt_id)
+                ->lockForUpdate()->firstOrFail();
+            if ($receipt->printed_at || $receipt->cancelled_at || $receipt->is_storno) {
+                return response()->json(['message' => 'Lezárt vagy sztornózott bizonylat tétele nem törölhető.'], 409);
+            }
+            $receipt->inventoryItems()->where('inventory_id', $request->inventory_id)->firstOrFail()->delete();
+
+            return response()->json(['success' => true]);
+        });
     }
 
     public function savecriProduct(Request $request)

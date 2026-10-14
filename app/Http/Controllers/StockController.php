@@ -116,6 +116,10 @@ class StockController extends Controller
             $query->whereIn('i.status', $statusIds);
         }
 
+        if ($request->filled('karat_ids')) {
+            $query->whereIn(DB::raw("COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(i.item_data, '$.karat_id')), 'null'), NULLIF(JSON_UNQUOTE(JSON_EXTRACT(i.item_data, '$.karats[0]')), 'null'))"), (array) $request->karat_ids);
+        }
+
         // Beszállító szűrés – mivel a készletnél nincs közvetlen kapcsolat, ezt a szűrőt most kihagyjuk,
         // vagy ha szükséges, akkor a termék beszállítói alapján kell szűrni (bonyolult).
         // Itt egyszerűen figyelmen kívül hagyjuk, mert a beszállító szűrés a get_actual_stock_search-ben működik.
@@ -172,6 +176,7 @@ class StockController extends Controller
                 'warehouses' => Warehouse::all(),
                 'businesses' => Business::all(),
                 'suppliers' => Customer::all(),
+                'karats' => Karat::where('status', 1)->orderBy('name', 'ASC')->get(),
                 'products_all' => Product::all(),
                 'show' => $show,
             ]);
@@ -635,6 +640,12 @@ class StockController extends Controller
 
             $filteredRecords = (clone $query)->count();
 
+            $totals = (clone $query)->select([])->selectRaw("
+                COALESCE(SUM(i.weight), 0) as weight,
+                COALESCE(SUM(CAST(COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(i.item_data, '$.eladasi_ar')), 'null'), i.price, 0) AS DECIMAL(20, 2))), 0) as selling_price,
+                COALESCE(SUM(CAST(COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(i.item_data, '$.beszerzesi_ar')), 'null'), i.oneprice, 0) AS DECIMAL(20, 2))), 0) as purchase_price
+            ")->first();
+
             $orderColumnIndex = $request->input('order.0.column', 0);
             $orderDirection = $request->input('order.0.dir', 'asc');
             $columns = $request->input('columns', []);
@@ -696,6 +707,11 @@ class StockController extends Controller
                 'draw' => (int) $request->input('draw', 1),
                 'recordsTotal' => $totalRecords,
                 'recordsFiltered' => $filteredRecords,
+                'totals' => [
+                    'weight' => (float) $totals->weight,
+                    'selling_price' => (float) $totals->selling_price,
+                    'purchase_price' => (float) $totals->purchase_price,
+                ],
                 'data' => $formattedData
             ]);
 

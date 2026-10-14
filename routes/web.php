@@ -8,6 +8,7 @@ use App\Http\Controllers\CustomerTypeController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CustomerMarkingController;
 use App\Http\Controllers\BusinessMarkingController;
+use App\Http\Controllers\BusinessAliasController;
 use App\Http\Controllers\BusinessController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\ToolController;
@@ -30,6 +31,7 @@ use App\Http\Controllers\RoleController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\ItemListController;
 use App\Http\Controllers\CustomerCardController;
+use App\Http\Controllers\MobileCustomerController;
 use App\Http\Controllers\PackageController;
 use App\Http\Controllers\BillingoBillController;
 
@@ -60,6 +62,13 @@ Auth::routes();
 Auth::routes(['verify' => true]);
 Route::get('/', function () {
     return response()->redirectTo('/login');
+});
+
+Route::prefix('mobil/customer')->name('mobile.customer')->group(function () {
+    Route::get('/', [MobileCustomerController::class, 'show']);
+    Route::get('/login', [MobileCustomerController::class, 'login'])->name('.login');
+    Route::post('/login', [MobileCustomerController::class, 'authenticate'])->middleware('throttle:20,1')->name('.authenticate');
+    Route::post('/logout', [MobileCustomerController::class, 'logout'])->name('.logout');
 });
 
 // Supports both /pdf/purchase_tickets/file.pdf?timestamp=... and malformed /file.pdf&timestamp=...
@@ -458,6 +467,9 @@ Route::middleware('auth')->prefix('ajax')->group(function () {
     Route::post('/save_business_marking', [BusinessMarkingController::class, 'save']);
     Route::post('/load_business_markings', [BusinessMarkingController::class, 'load']);
     Route::post('/delete_business_marking', [BusinessMarkingController::class, 'delete']);
+    Route::post('/save_business_alias', [BusinessAliasController::class, 'save']);
+    Route::post('/load_business_aliases', [BusinessAliasController::class, 'load']);
+    Route::post('/delete_business_alias', [BusinessAliasController::class, 'delete']);
 
     Route::post('/save_property_contact', [PropertyController::class, 'saveContact']);
     Route::post('/load_property_contacts', [PropertyController::class, 'loadContacts']);
@@ -608,6 +620,8 @@ Route::middleware('auth')->prefix('ajax')->group(function () {
     Route::post('/delete_cri_image', [ConsignmentReceiptController::class, 'deleteImg']);
     Route::post('/copy_consignment_receipt', [ConsignmentReceiptController::class, 'copyConsignmentReceipt']);
     Route::post('/cancel_consignment_receipt', [ConsignmentReceiptController::class, 'cancelConsignmentReceipt']);
+    Route::post('/delete_consignment_receipt_item', [ConsignmentReceiptController::class, 'deleteConsignmentReceiptItem']);
+    Route::get('/pdf/consignment_receipt/{consignment_receipt}/storno', [ConsignmentReceiptController::class, 'printStorno'])->name('consignment_receipt.storno.print');
     Route::post('/save_cri_product', [ConsignmentReceiptController::class, 'saveCRIProduct']);
     Route::post('/update_expire_date_cri', [ConsignmentReceiptController::class, 'update_expire_date']);
 
@@ -687,7 +701,7 @@ Route::middleware('auth')->prefix('ajax')->group(function () {
     Route::resource('customercard', CustomerCardController::class);
 
     // Additional routes
-    Route::get('customercard/{customerCard}/show', [CustomerCardController::class, 'show'])->name('customercard.show');
+    Route::get('customercard/{customercard}/show', [CustomerCardController::class, 'show'])->name('customercard.show');
     Route::get('api/valid-cards', [CustomerCardController::class, 'getValidCards'])->name('customercard.valid-cards');
     Route::post('api/calculate-discount', [CustomerCardController::class, 'calculateDiscount'])->name('customercard.calculate-discount');
 

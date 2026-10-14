@@ -380,6 +380,21 @@ class StockEntryController extends Controller
         if ((int) $stock_entry->status === 2) {
             return response()->json(['message' => 'A bizonylat lezárt, nem módosítható.'], 423);
         }
+        $brokenGoldInventoryIds = collect();
+        $brokenGoldWarehouseId = null;
+        if ($closeEntry) {
+            $brokenGoldInventoryIds = $stock_entry->inventoryItems()
+                ->get(['inventory_id', 'item_data'])
+                ->filter(fn ($inventory) => filter_var($inventory->item_data['is_broken_gold'] ?? false, FILTER_VALIDATE_BOOLEAN))
+                ->pluck('inventory_id');
+
+            if ($brokenGoldInventoryIds->isNotEmpty()) {
+                $brokenGoldWarehouseId = Warehouse::where('is_broken_gold', 1)->value('warehouse_id');
+                if (!$brokenGoldWarehouseId) {
+                    return response()->json(['message' => 'Nincs törtarany raktár beállítva.'], 422);
+                }
+            }
+        }
         //$storage = Warehouse::where('is_central', '1')->first();
         //$storage = Business::find(auth()->user()->employee?->active_business_id)->warehouses()->first();
         $storage_id = $request->storage_id;
@@ -485,9 +500,22 @@ class StockEntryController extends Controller
             if (empty($stock_entry->printed_at)) {
                 $stock_entry->printed_at = now();
             }
+        } elseif ((int) $stock_entry->status === 0) {
+            $stock_entry->status = 1;
         }
 
-        $stock_entry->save();
+        DB::transaction(function () use ($stock_entry, $brokenGoldInventoryIds, $brokenGoldWarehouseId) {
+            if ($brokenGoldInventoryIds->isNotEmpty()) {
+                $stock_entry->inventoryItems()
+                    ->whereIn('inventory_id', $brokenGoldInventoryIds)
+                    ->update([
+                        'storage_id' => $brokenGoldWarehouseId,
+                        'warehouse_to' => $brokenGoldWarehouseId,
+                    ]);
+            }
+
+            $stock_entry->save();
+        });
 
         if ($closeEntry) {
             try {
@@ -519,6 +547,10 @@ class StockEntryController extends Controller
 
    public function saveStockEntryItem(Request $request)
     {
+        $request->validate([
+            'new_hallmarks' => 'nullable|in:0,1',
+        ]);
+
         $stock_entry = StockEntry::findOrFail($request->stock_entry_id);
         Log::info('Saving stock entry item', ['stock_entry_id' => $stock_entry->stock_entry_id, 'request' => $request->all()]);
         if ((int) $stock_entry->status === 2) {
@@ -547,6 +579,25 @@ class StockEntryController extends Controller
         $quantity = (int) $request->new_quantity;
         $oneprice = (int) $request->new_oneprice;
         $weight = $request->new_weight ?: 0;
+        $isBrokenGold = $request->boolean('new_is_broken_gold');
+        $hallmarksValue = $request->input('new_hallmarks');
+        $hallmarks = $hallmarksValue === null ? null : (int) $hallmarksValue;
+
+        if ($isBrokenGold) {
+            $brokenGoldWarehouseId = Warehouse::where('is_broken_gold', 1)->value('warehouse_id');
+            if (!$brokenGoldWarehouseId) {
+                return response()->json(['message' => 'Nincs törtarany raktár beállítva.'], 422);
+            }
+
+            $storage_id = $brokenGoldWarehouseId;
+        } elseif ($hallmarks === 0) {
+            $hallmarkWarehouseId = Warehouse::where('is_hallmark', 1)->value('warehouse_id');
+            if (!$hallmarkWarehouseId) {
+                return response()->json(['message' => 'Nincs fémjelzés raktár beállítva.'], 422);
+            }
+
+            $storage_id = $hallmarkWarehouseId;
+        }
 
         // Inventory tételek létrehozása
         $inventoryItems = [];
@@ -594,7 +645,8 @@ class StockEntryController extends Controller
                     'beszerzesi_ar' => $request->new_beszerzesi_ar,
                     'eladasi_ar' => $request->new_eladasi_ar,
                     'vat_type_id' => $request->new_vat_type,
-                    'hallmarks' => $request->has('new_hallmarks') ?? 0,
+                    'hallmarks' => $hallmarks,
+                    'is_broken_gold' => $isBrokenGold ? 1 : 0,
                     'statuses' => $request->new_statuses ?? [],
                     'karat_id' => $request->new_karat_id,
                     'colors' => $request->new_colors ?? [],
@@ -651,7 +703,8 @@ class StockEntryController extends Controller
                 'beszerzesi_ar' => $request->new_beszerzesi_ar,
                 'eladasi_ar' => $request->new_eladasi_ar,
                 'vat_type_id' => $request->new_vat_type,
-                'hallmarks' => $request->has('new_hallmarks') ?? 0,
+                'hallmarks' => $hallmarks,
+                'is_broken_gold' => $isBrokenGold ? 1 : 0,
                 'statuses' => $request->new_statuses ?? [],
                 'karat_id' => $request->new_karat_id,
                 'colors' => $request->new_colors ?? [],
@@ -669,7 +722,7 @@ class StockEntryController extends Controller
          
 
         // Nyomtatás kezelése
-        if ($request->print) {
+        if ($request->boolean('print')) {
             $stock_entry->printed_at = now();
             $stock_entry->save();
             session()->flash('print', $stock_entry->stock_entry_id);

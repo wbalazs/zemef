@@ -149,6 +149,12 @@ class Inventory extends Model
                     ->where('module', 'stock_entry');
     }
 
+    public function consignment_receipt_images(): HasMany
+    {
+        return $this->hasMany(ZImage::class, 'resource_id', 'inventory_id')
+                    ->whereIn('module', ['consignment_receipt', 'cri']);
+    }
+
     public function packageItems()
     {
         return $this->morphMany(PackageItem::class, 'itemable');
